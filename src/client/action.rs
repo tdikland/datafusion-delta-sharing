@@ -117,20 +117,15 @@ impl Default for Format {
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
     id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     format: Format,
     schema_string: String,
     partition_columns: Vec<String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default)]
     configuration: HashMap<String, String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     num_files: Option<u64>,
 }
 

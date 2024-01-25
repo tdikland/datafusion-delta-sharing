@@ -1,6 +1,6 @@
 //! Basic types for describing shared objects
 
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
@@ -239,6 +239,19 @@ impl Display for Table {
             self.schema_name(),
             self.name()
         )
+    }
+}
+
+impl FromStr for Table {
+    type Err = (); // Proper Error Type
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts = s.split('.').collect::<Vec<_>>();
+        if parts.len() == 3 {
+            Ok(Table::new(parts[0], parts[1], parts[2], None, None))
+        } else {
+            Err(())
+        }
     }
 }
 
