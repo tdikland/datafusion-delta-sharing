@@ -4,12 +4,14 @@ use std::{fmt::Display, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::DeltaSharingError;
+
 /// The type of a share as defined in the Delta Sharing protocol.
 ///
 /// A share is a logical grouping to share with recipients. A share can be
 /// shared with one or multiple recipients. A recipient can access all
 /// resources in a share. A share may contain multiple schemas.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct Share {
     name: String,
@@ -30,7 +32,7 @@ impl Share {
     /// # Example
     ///
     /// ```rust
-    /// use delta_sharing_server::protocol::securable::Share;
+    /// use datafusion_delta_sharing::securable::Share;
     ///
     /// let share = Share::new("my-share", None);
     /// assert_eq!(share.name(), "my-share");
@@ -44,7 +46,7 @@ impl Share {
     /// # Example
     ///  
     /// ```rust
-    /// use delta_sharing_server::protocol::securable::Share;
+    /// use datafusion_delta_sharing::securable::Share;
     ///
     /// let share = Share::new("my-share", Some("my-share-id"));
     /// assert_eq!(share.id(), Some("my-share-id"));
@@ -60,11 +62,19 @@ impl Display for Share {
     }
 }
 
+impl FromStr for Share {
+    type Err = DeltaSharingError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Share::new(s, None))
+    }
+}
+
 /// The type of a schema as defined in the Delta Sharing protocol.
 ///
 /// A schema is a logical grouping of tables. A schema may contain multiple
 /// tables. A schema is defined within the context of a [`Share`].
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct Schema {
     share: String,
@@ -85,7 +95,7 @@ impl Schema {
     /// # Example
     ///
     /// ```rust
-    /// use delta_sharing_server::protocol::securable::{Share, Schema};
+    /// use datafusion_delta_sharing::securable::{Share, Schema};
     ///
     /// let schema = Schema::new("my-share", "my-schema");
     /// assert_eq!(schema.share_name(), "my-share");
@@ -99,7 +109,7 @@ impl Schema {
     /// # Example
     ///
     /// ```rust
-    /// use delta_sharing_server::protocol::securable::{Schema};
+    /// use datafusion_delta_sharing::securable::{Schema};
     ///
     /// let schema = Schema::new("my-share", "my-schema");
     /// assert_eq!(schema.name(), "my-schema");
@@ -115,11 +125,26 @@ impl Display for Schema {
     }
 }
 
+impl FromStr for Schema {
+    type Err = DeltaSharingError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts = s.split('.').collect::<Vec<_>>();
+        if parts.len() == 2 {
+            Ok(Schema::new(parts[0], parts[1]))
+        } else {
+            Err(DeltaSharingError::parse_securable(
+                "Schema must be of the form <share>.<schema>",
+            ))
+        }
+    }
+}
+
 /// The type of a table as defined in the Delta Sharing protocol.
 ///
 /// A table is a Delta Lake table or a view on top of a Delta Lake table. A
 /// table is defined within the context of a [`Schema`].
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct Table {
     name: String,
@@ -144,8 +169,8 @@ impl Table {
             name: table_name.into(),
             schema: schema_name.into(),
             share: share_name.into(),
-            share_id: share_id.map(Into::into),
-            id: table_id.map(Into::into),
+            share_id,
+            id: table_id,
         }
     }
 
@@ -154,11 +179,9 @@ impl Table {
     /// # Example
     ///
     /// ```rust
-    /// use delta_sharing_server::protocol::securable::{Share, Schema, Table};
+    /// use datafusion_delta_sharing::securable::{Share, Schema, Table};
     ///
-    /// let share = Share::new("my-share", None);
-    /// let schema = Schema::new(share, "my-schema", None);
-    /// let table = Table::new(schema, "my-table", None, "my-storage-path", None);
+    /// let table = Table::new("my-share", "my-schema", "my-table", None, None);
     /// assert_eq!(table.share_name(), "my-share");
     /// ```
     pub fn share_name(&self) -> &str {
@@ -170,11 +193,9 @@ impl Table {
     /// # Example
     ///
     /// ```rust
-    /// use delta_sharing_server::protocol::securable::{Share, Schema, Table};
+    /// use datafusion_delta_sharing::securable::{Share, Schema, Table};
     ///
-    /// let share = Share::new("my-share", Some("my-share-id"));
-    /// let schema = Schema::new(share, "my-schema", None);
-    /// let table = Table::new(schema, "my-table", None, "my-storage-path", None);
+    /// let table = Table::new("my-share", "my-schema", "my-table", Some("my-share-id".to_string()), None);
     /// assert_eq!(table.share_id(), Some("my-share-id"));
     /// ```
     pub fn share_id(&self) -> Option<&str> {
@@ -186,11 +207,9 @@ impl Table {
     /// # Example
     ///
     /// ```rust
-    /// use delta_sharing_server::protocol::securable::{Share, Schema, Table};
+    /// use datafusion_delta_sharing::securable::{Share, Schema, Table};
     ///
-    /// let share = Share::new("my-share", None);
-    /// let schema = Schema::new(share, "my-schema", None);
-    /// let table = Table::new(schema, "my-table", None, "my-storage-path", None);
+    /// let table = Table::new("my-share", "my-schema", "my-table", None, None);
     /// assert_eq!(table.schema_name(), "my-schema");
     /// ```
     pub fn schema_name(&self) -> &str {
@@ -202,11 +221,9 @@ impl Table {
     /// # Example
     ///
     /// ```rust
-    /// use delta_sharing_server::protocol::securable::{Share, Schema, Table};
+    /// use datafusion_delta_sharing::securable::{Share, Schema, Table};
     ///
-    /// let share = Share::new("my-share", None);
-    /// let schema = Schema::new(share, "my-schema", None);
-    /// let table = Table::new(schema, "my-table", None, "my-storage-path", None);
+    /// let table = Table::new("my-share", "my-schema", "my-table", None, None);
     /// assert_eq!(table.name(), "my-table");
     /// ```
     pub fn name(&self) -> &str {
@@ -218,11 +235,9 @@ impl Table {
     /// # Example
     ///
     /// ```rust
-    /// use delta_sharing_server::protocol::securable::{Share, Schema, Table};
+    /// use datafusion_delta_sharing::securable::{Share, Schema, Table};
     ///
-    /// let share = Share::new("my-share", None);
-    /// let schema = Schema::new(share, "my-schema", None);
-    /// let table = Table::new(schema, "my-table", Some("my-table-id"), "my-storage-path", None);
+    /// let table = Table::new("my-share", "my-schema", "my-table", None, Some("my-table-id".to_string()));
     /// assert_eq!(table.id(), Some("my-table-id"));
     /// ```
     pub fn id(&self) -> Option<&str> {
@@ -243,46 +258,57 @@ impl Display for Table {
 }
 
 impl FromStr for Table {
-    type Err = (); // Proper Error Type
+    type Err = DeltaSharingError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts = s.split('.').collect::<Vec<_>>();
         if parts.len() == 3 {
             Ok(Table::new(parts[0], parts[1], parts[2], None, None))
         } else {
-            Err(())
+            Err(DeltaSharingError::parse_securable(
+                "Table must be of the form <share>.<schema>.<table>",
+            ))
         }
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[test]
-//     fn display_share() {
-//         let share = Share::new("share", Some("id"));
-//         assert_eq!(format!("{}", share), "share");
-//     }
+    #[test]
+    fn display_share() {
+        let share = Share::new("share", Some("id"));
+        assert_eq!(format!("{}", share), "share");
+    }
 
-//     #[test]
-//     fn display_schema() {
-//         let share = Share::new("share", Some("share_id"));
-//         let schema = Schema::new(share, "schema", Some("schema_id"));
-//         assert_eq!(format!("{}", schema), "share.schema");
-//     }
+    #[test]
+    fn parse_share() {
+        let share = "share".parse::<Share>().unwrap();
+        assert_eq!(share, Share::new("share", None));
+    }
 
-//     #[test]
-//     fn display_table() {
-//         let share = Share::new("share", Some("share_id"));
-//         let schema = Schema::new(share, "schema", Some("schema_id"));
-//         let table = Table::new(
-//             schema,
-//             "table",
-//             Some("table_id"),
-//             "storage_path",
-//             Some("format"),
-//         );
-//         assert_eq!(format!("{}", table), "share.schema.table");
-//     }
-// }
+    #[test]
+    fn display_schema() {
+        let schema = Schema::new("share", "schema");
+        assert_eq!(format!("{}", schema), "share.schema");
+    }
+
+    #[test]
+    fn parse_schema() {
+        let schema = "share.schema".parse::<Schema>().unwrap();
+        assert_eq!(schema, Schema::new("share", "schema"));
+    }
+
+    #[test]
+    fn display_table() {
+        let table = Table::new("share", "schema", "table", None, None);
+        assert_eq!(format!("{}", table), "share.schema.table");
+    }
+
+    #[test]
+    fn parse_table() {
+        let table = "share.schema.table".parse::<Table>().unwrap();
+        assert_eq!(table, Table::new("share", "schema", "table", None, None));
+    }
+}

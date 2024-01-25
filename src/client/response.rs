@@ -1,9 +1,10 @@
+use std::fmt::{Display, Formatter};
+
 use serde::Deserialize;
 
-use super::{
-    action::{File, Metadata, Protocol},
-    securable::{Schema, Share, Table},
-};
+use crate::securable::{Schema, Share, Table};
+
+use super::action::{File, Metadata, Protocol};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +20,12 @@ impl ErrorResponse {
 
     pub fn message(&self) -> &str {
         &self.message
+    }
+}
+
+impl Display for ErrorResponse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.error_code, self.message)
     }
 }
 
@@ -125,6 +132,13 @@ impl ParquetResponse {
         }
     }
 
+    pub fn to_file(self) -> Option<File> {
+        match self {
+            ParquetResponse::File(f) => Some(f),
+            _ => None,
+        }
+    }
+
     pub fn as_metadata(&self) -> Option<&Metadata> {
         match self {
             ParquetResponse::Metadata(m) => Some(m),
@@ -135,6 +149,13 @@ impl ParquetResponse {
     pub fn to_metadata(self) -> Option<Metadata> {
         match self {
             ParquetResponse::Metadata(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    pub fn as_file(&self) -> Option<&File> {
+        match self {
+            ParquetResponse::File(f) => Some(f),
             _ => None,
         }
     }

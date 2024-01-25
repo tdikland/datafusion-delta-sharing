@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use datafusion::{assert_batches_sorted_eq, prelude::*};
-use datafusion_delta_sharing::{client::securable::Table, DeltaSharingTableBuilder};
+use datafusion_delta_sharing::{securable::Table, DeltaSharingTableBuilder};
 
 #[tokio::main]
 async fn main() {

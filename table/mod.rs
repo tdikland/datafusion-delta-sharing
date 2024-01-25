@@ -22,10 +22,9 @@ impl DeltaSharingTableBuilder {
     pub async fn build(self) -> DeltaSharingTable {
         let client = DeltaSharingClient::new(self.endpoint, self.token);
 
-        let share = client::securable::Share::new(self.share_name, None);
-        let schema = client::securable::Schema::new(share, self.schema_name, None);
-        let table =
-            client::securable::Table::new(schema, self.table_name, None, String::new(), None);
+        let share = securable::Share::new(self.share_name, None);
+        let schema = securable::Schema::new(share, self.schema_name, None);
+        let table = securable::Table::new(schema, self.table_name, None, String::new(), None);
 
         let metadata = client.get_table_metadata(&table).await;
 

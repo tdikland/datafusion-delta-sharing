@@ -1,11 +1,11 @@
 use reqwest::Url;
 
-#[derive(Debug, Clone)]
-struct Profile {
-    share_credentials_version: u32,
-    enpoint: String,
-    bearer_token: Option<String>,
-}
+// #[derive(Debug, Clone)]
+// struct Profile {
+//     share_credentials_version: u32,
+//     enpoint: String,
+//     bearer_token: Option<String>,
+// }
 
 #[derive(Debug, Clone)]
 pub enum DeltaSharingProfile {
@@ -36,7 +36,7 @@ impl DeltaSharingProfile {
 }
 
 #[derive(Debug, Clone)]
-struct BearerTokenProfile {
+pub struct BearerTokenProfile {
     endpoint: String,
     token: String,
 }

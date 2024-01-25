@@ -2,22 +2,18 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use datafusion::{
-    catalog::{
-        schema::{self, SchemaProvider},
-        CatalogProvider,
-    },
+    catalog::{schema::SchemaProvider, CatalogProvider},
     datasource::TableProvider,
 };
 
 use crate::{
-    client::{
-        profile::DeltaSharingProfile, rest::RestClient, securable::Table, DeltaSharingClient,
-    },
+    client::{profile::DeltaSharingProfile, DeltaSharingClient},
+    securable::{Share, Table},
     DeltaSharingTableBuilder,
 };
 
 pub struct DeltaSharingCatalog {
-    client: RestClient,
+    client: DeltaSharingClient,
     name: String,
     schemas: HashMap<String, Arc<dyn SchemaProvider>>,
 }
@@ -25,10 +21,11 @@ pub struct DeltaSharingCatalog {
 impl DeltaSharingCatalog {
     pub async fn new(endpoint: String, token: String, share_name: &str) -> Self {
         let profile = DeltaSharingProfile::new(endpoint, token);
-        let client = RestClient::new(profile);
+        let client = DeltaSharingClient::new(profile);
 
+        let share = Share::new(share_name, None);
         let mut schemas = HashMap::new();
-        for table in client.list_all_tables(share_name).await.unwrap() {
+        for table in client.list_all_tables(&share).await.unwrap() {
             let schema_provider = schemas
                 .entry(table.schema_name().to_string())
                 .or_insert_with_key(|schema_name| {
@@ -52,6 +49,14 @@ impl DeltaSharingCatalog {
             schemas: result,
         }
     }
+
+    pub fn client(&self) -> &DeltaSharingClient {
+        &self.client
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl CatalogProvider for DeltaSharingCatalog {
@@ -69,20 +74,24 @@ impl CatalogProvider for DeltaSharingCatalog {
 }
 
 pub struct DeltaSharingSchema {
-    client: RestClient,
+    client: DeltaSharingClient,
     share_name: String,
     schema_name: String,
     table_names: Vec<String>,
 }
 
 impl DeltaSharingSchema {
-    fn new(client: RestClient, share_name: String, schema_name: String) -> Self {
+    fn new(client: DeltaSharingClient, share_name: String, schema_name: String) -> Self {
         Self {
             client,
             share_name,
             schema_name,
             table_names: Vec::new(),
         }
+    }
+
+    pub fn client(&self) -> &DeltaSharingClient {
+        &self.client
     }
 }
 

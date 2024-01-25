@@ -1,237 +1,334 @@
-use std::time::Duration;
-
-use reqwest::{header::USER_AGENT, Method};
-use reqwest_middleware::ClientWithMiddleware;
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
-use reqwest_tracing::TracingMiddleware;
+use reqwest::{Client, Method, Response, StatusCode, Url};
+use serde::Deserialize;
+use serde_json::Deserializer;
 
 use self::{
-    action::{File, Metadata, Protocol},
-    securable::{Share, Table},
+    action::File,
+    pagination::{Pagination, PaginationExt},
+};
+
+use crate::{
+    error::DeltaSharingError,
+    securable::{Schema, Share, Table},
+};
+use {
+    action::{Metadata, Protocol},
+    profile::DeltaSharingProfile,
+    response::{
+        ErrorResponse, ListSchemasPaginated, ListSharesPaginated, ListTablesPaginated,
+        ParquetResponse,
+    },
 };
 
 pub mod action;
+pub mod pagination;
 pub mod profile;
 pub mod response;
-pub mod rest;
-pub mod securable;
 
-pub enum ClientError {
-    Other(String),
-}
+const QUERY_PARAM_VERSION_TIMESTAMP: &'static str = "startingTimestamp";
 
+#[derive(Debug, Clone)]
 pub struct DeltaSharingClient {
-    client: ClientWithMiddleware,
-    endpoint: String,
-    token: String,
+    client: Client,
+    profile: DeltaSharingProfile,
+    endpoint: Url,
 }
 
 impl DeltaSharingClient {
-    pub fn new(endpoint: impl Into<String>, token: impl Into<String>) -> Self {
-        let inner_client = reqwest::ClientBuilder::new()
-            .connect_timeout(Duration::from_secs(10))
-            .build()
-            .expect("valid client configuration");
-
-        let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
-        let client = reqwest_middleware::ClientBuilder::new(inner_client)
-            .with(TracingMiddleware::default())
-            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
-            .build();
-
+    pub fn new(profile: DeltaSharingProfile) -> Self {
         Self {
-            client,
-            endpoint: endpoint.into(),
-            token: token.into(),
+            client: Client::new(),
+            profile: profile.clone(),
+            endpoint: profile.url(),
         }
     }
 
-    fn request(&self, method: Method, url: &str) -> reqwest_middleware::RequestBuilder {
-        self.client
-            .request(method, url)
-            .bearer_auth(&self.token)
-            .header(USER_AGENT, "datafusion-delta-sharing/0.0.1")
+    pub async fn list_shares_paginated(
+        &self,
+        pagination: &Pagination,
+    ) -> Result<ListSharesPaginated, DeltaSharingError> {
+        let mut url = self.endpoint.clone();
+        url.set_path(&format!("/shares"));
+        url.set_pagination(&pagination);
+
+        let response = self.request(Method::GET, url).await?;
+        let status = response.status();
+        response
+            .json::<ServerResponse<ListSharesPaginated>>()
+            .await?
+            .with_status(status)
     }
 
-    // async fn list_shares_page(&self) -> Result<ListSharesResponse, ClientError> {
-    //     let url =
-    //     Ok(self
-    //         .client
-    //         .get(format!("{}/shares", self.endpoint))
-    //         .bearer_auth(&self.token)
-    //         .send()
-    //         .await
-    //         .map_err(|e| ClientError::Other(e.to_string()))?
-    //         .json()
-    //         .await
-    //         .map_err(|e| ClientError::Other(e.to_string()))?)
-    // }
-
-    pub async fn list_shares(&self) -> Result<Vec<Share>, ClientError> {
+    pub async fn list_shares(&self) -> Result<Vec<Share>, DeltaSharingError> {
         let mut shares = vec![];
-        let mut done = false;
-        while !done {
-            let response = self
-                .client
-                .get(format!("{}/shares", self.endpoint))
-                .bearer_auth(&self.token)
-                .send()
-                .await
-                .map_err(|e| ClientError::Other(e.to_string()))?
-                .json::<ListSharesResponse>()
-                .await
-                .map_err(|e| ClientError::Other(e.to_string()))?;
-
-            shares.extend(response.items);
-            done = response.next_page_token.is_none();
+        let mut pagination = Pagination::default();
+        loop {
+            let response = self.list_shares_paginated(&pagination).await?;
+            pagination.set_next_token(response.next_page_token().map(ToOwned::to_owned));
+            shares.extend(response);
+            if pagination.is_finished() {
+                break;
+            }
         }
-
         Ok(shares)
     }
 
-    pub async fn get_all_tables(&self, share: &str) -> Vec<String> {
-        todo!();
+    pub async fn list_schemas_paginated(
+        &self,
+        share: &Share,
+        pagination: &Pagination,
+    ) -> Result<ListSchemasPaginated, DeltaSharingError> {
+        let mut url = self.endpoint.clone();
+        url.set_path(&format!("/shares/{}/schemas", share));
+        url.set_pagination(pagination);
+
+        let response = self.request(Method::GET, url).await?;
+        let status = response.status();
+        response
+            .json::<ServerResponse<ListSchemasPaginated>>()
+            .await?
+            .with_status(status)
     }
 
-    pub async fn get_table_metadata(&self, table: &Table) -> Metadata {
-        let response = self
-            .client
-            .get(format!(
-                "{}/shares/{}/schemas/{}/tables/{}/metadata",
-                self.endpoint,
-                table.share_name(),
-                table.schema_name(),
-                table.name()
-            ))
-            .bearer_auth(&self.token)
+    pub async fn list_schemas(&self, share: &Share) -> Result<Vec<Schema>, DeltaSharingError> {
+        let mut schemas = vec![];
+        let mut pagination = Pagination::default();
+        loop {
+            let response = self.list_schemas_paginated(share, &pagination).await?;
+            pagination.set_next_token(response.next_page_token().map(ToOwned::to_owned));
+            schemas.extend(response);
+            if pagination.is_finished() {
+                break;
+            }
+        }
+        Ok(schemas)
+    }
+
+    pub async fn list_tables_in_schema_paginated(
+        &self,
+        schema: &Schema,
+        pagination: &Pagination,
+    ) -> Result<ListTablesPaginated, DeltaSharingError> {
+        let mut url = self.endpoint.clone();
+        url.set_path(&format!(
+            "/shares/{}/schemas/{}/tables",
+            schema.share_name(),
+            schema.name()
+        ));
+        url.set_pagination(pagination);
+
+        let response = self.request(Method::GET, url).await?;
+        let status = response.status();
+        response
+            .json::<ServerResponse<ListTablesPaginated>>()
+            .await?
+            .with_status(status)
+    }
+
+    pub async fn list_tables(&self, schema: &Schema) -> Result<Vec<Table>, DeltaSharingError> {
+        let mut tables = vec![];
+        let mut pagination = Pagination::default();
+        loop {
+            let response = self
+                .list_tables_in_schema_paginated(schema, &pagination)
+                .await?;
+            pagination.set_next_token(response.next_page_token().map(ToOwned::to_owned));
+            tables.extend(response);
+            if pagination.is_finished() {
+                break;
+            }
+        }
+        Ok(tables)
+    }
+
+    async fn list_tables_in_share_paginated(
+        &self,
+        share: &Share,
+        pagination: &Pagination,
+    ) -> Result<ListTablesPaginated, DeltaSharingError> {
+        let mut url = self.endpoint.clone();
+        url.set_path(&format!("/shares/{}/all-tables", share.name()));
+        url.set_pagination(pagination);
+
+        let response = self.request(Method::GET, url).await?;
+        let status = response.status();
+        response
+            .json::<ServerResponse<ListTablesPaginated>>()
+            .await?
+            .with_status(status)
+    }
+
+    pub async fn list_all_tables(&self, share: &Share) -> Result<Vec<Table>, DeltaSharingError> {
+        let mut tables = vec![];
+        let mut pagination = Pagination::default();
+        loop {
+            let response = self
+                .list_tables_in_share_paginated(share, &pagination)
+                .await?;
+            pagination.set_next_token(response.next_page_token().map(ToOwned::to_owned));
+            tables.extend(response);
+            if pagination.is_finished() {
+                break;
+            }
+        }
+        Ok(tables)
+    }
+
+    pub async fn get_table_version(
+        &self,
+        table: &Table,
+        starting_timestamp: Option<&str>,
+    ) -> Result<u64, DeltaSharingError> {
+        let mut url = self.endpoint.clone();
+        url.set_path(&format!(
+            "/shares/{}/schemas/{}/tables/{}/version",
+            table.share_name(),
+            table.schema_name(),
+            table.name()
+        ));
+        if let Some(ts) = starting_timestamp {
+            url.query_pairs_mut()
+                .append_pair(QUERY_PARAM_VERSION_TIMESTAMP, ts);
+        }
+
+        let response = self.request(Method::GET, url).await.unwrap();
+        response
+            .headers()
+            .get("Delta-Table-Version")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+            .ok_or(DeltaSharingError::parse_response("parsing version failed"))
+    }
+
+    pub async fn get_table_metadata(
+        &self,
+        table: &Table,
+    ) -> Result<(Protocol, Metadata), DeltaSharingError> {
+        let mut url = self.endpoint.clone();
+        url.set_path(&format!(
+            "/shares/{}/schemas/{}/tables/{}/metadata",
+            table.share_name(),
+            table.schema_name(),
+            table.name()
+        ));
+
+        let response = self.request(Method::GET, url).await?;
+        let status = response.status();
+
+        if !status.is_success() {
+            let res = response.json::<ErrorResponse>().await.unwrap();
+            if status.is_client_error() {
+                return Err(DeltaSharingError::client(res.to_string()));
+            } else if status.is_server_error() {
+                return Err(DeltaSharingError::server(res.to_string()));
+            } else {
+                return Err(DeltaSharingError::other("unknown error"));
+            }
+        } else {
+            let full = response.bytes().await?;
+            let mut lines = Deserializer::from_slice(&full).into_iter::<ParquetResponse>();
+
+            let protocol = lines
+                .next()
+                .and_then(Result::ok)
+                .and_then(ParquetResponse::to_protocol)
+                .ok_or(DeltaSharingError::parse_response("parsing protocol failed"))?;
+            let metadata = dbg!(lines.next())
+                .and_then(Result::ok)
+                .and_then(ParquetResponse::to_metadata)
+                .ok_or(DeltaSharingError::parse_response("parsing metadata failed"))?;
+
+            Ok((protocol, metadata))
+        }
+    }
+
+    pub async fn get_table_data(
+        &self,
+        table: &Table,
+        _predicates: Option<String>,
+        _limit: Option<u32>,
+    ) -> Result<Vec<File>, DeltaSharingError> {
+        let mut url = self.endpoint.clone();
+        url.set_path(&format!(
+            "/shares/{}/schemas/{}/tables/{}/metadata",
+            table.share_name(),
+            table.schema_name(),
+            table.name()
+        ));
+
+        let response = self.request(Method::POST, url).await?;
+        let status = response.status();
+
+        if !status.is_success() {
+            let res = response.json::<ErrorResponse>().await.unwrap();
+            if status.is_client_error() {
+                return Err(DeltaSharingError::client(res.to_string()));
+            } else if status.is_server_error() {
+                return Err(DeltaSharingError::server(res.to_string()));
+            } else {
+                return Err(DeltaSharingError::other("unknown error"));
+            }
+        } else {
+            let full = response.bytes().await?;
+            let mut lines = Deserializer::from_slice(&full).into_iter::<ParquetResponse>();
+
+            let _ = lines
+                .next()
+                .and_then(Result::ok)
+                .and_then(ParquetResponse::to_protocol)
+                .ok_or(DeltaSharingError::parse_response("parsing protocol failed"))?;
+            let _ = lines
+                .next()
+                .and_then(Result::ok)
+                .and_then(ParquetResponse::to_metadata)
+                .ok_or(DeltaSharingError::parse_response("parsing metadata failed"))?;
+
+            let mut files = vec![];
+            while let Some(line) = lines.next() {
+                let file = line.ok().and_then(ParquetResponse::to_file);
+                if let Some(f) = file {
+                    files.push(f);
+                }
+            }
+
+            Ok(files)
+        }
+    }
+
+    pub async fn get_table_changes(&self, _table: &Table) {
+        todo!()
+    }
+
+    async fn request(&self, method: Method, url: Url) -> Result<Response, DeltaSharingError> {
+        self.client
+            .request(method, url)
+            .bearer_auth(self.profile.token())
             .send()
             .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap()
-            .lines()
-            .map(|line| serde_json::from_str::<ParquetResponse>(line).unwrap())
-            .collect::<Vec<_>>();
-
-        for r in response {
-            match r {
-                ParquetResponse::Metadata(m) => return m,
-                _ => (),
-            }
-        }
-
-        unreachable!()
-    }
-
-    pub async fn get_table_files(&self, table: &Table) -> Vec<File> {
-        let response = self
-            .client
-            .post(format!(
-                "{}/shares/{}/schemas/{}/tables/{}/query",
-                self.endpoint,
-                table.share_name(),
-                table.schema_name(),
-                table.name()
-            ))
-            .bearer_auth(&self.token)
-            .json(&serde_json::json!({
-              "predicateHints": [],
-            }))
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap()
-            .lines()
-            .map(|line| serde_json::from_str::<ParquetResponse>(line).unwrap())
-            .collect::<Vec<_>>();
-
-        println!("{response:?}");
-
-        for res in response.iter() {
-            match res {
-                ParquetResponse::Protocol(p) => println!("FOUND PROTOCOL!\n{p:?}"),
-                ParquetResponse::Metadata(m) => println!("FOUND METADATA!\n{m:?}"),
-                ParquetResponse::File(f) => println!("FOUND FILE!\n{f:?}"),
-            }
-        }
-
-        let mut files = vec![];
-        for res in response.into_iter() {
-            match res {
-                ParquetResponse::File(f) => files.push(f),
-                _ => (),
-            }
-        }
-
-        files
+            .map_err(Into::into)
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-enum ParquetResponse {
-    #[serde(rename = "protocol")]
-    Protocol(Protocol),
-    #[serde(rename = "metaData")]
-    Metadata(Metadata),
-    #[serde(rename = "file")]
-    File(File),
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum ServerResponse<T> {
+    Error(ErrorResponse),
+    Succes(T),
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct ListSharesResponse {
-    items: Vec<Share>,
-    #[serde(rename = "nextPageToken")]
-    next_page_token: Option<String>,
-}
-
-#[cfg(test)]
-mod test {
-    use test::securable::Schema;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn it_works() {
-        let endpoint = std::env::var("SHARING_ENDPOINT").unwrap();
-        let token = std::env::var("SHARING_TOKEN").unwrap();
-        let client = DeltaSharingClient::new(endpoint, token);
-
-        // let shares = client._list_shares().await;
-
-        // println!("{shares:?}");
-        // assert!(true);
+impl<T> ServerResponse<T> {
+    pub fn with_status(self, status: StatusCode) -> Result<T, DeltaSharingError> {
+        match self {
+            ServerResponse::Error(e) => {
+                if status.is_client_error() {
+                    Err(DeltaSharingError::client(e.to_string()))
+                } else if status.is_server_error() {
+                    Err(DeltaSharingError::server(e.to_string()))
+                } else {
+                    Err(DeltaSharingError::other("unknown error"))
+                }
+            }
+            ServerResponse::Succes(t) => Ok(t),
+        }
     }
-
-    // #[tokio::test]
-    // async fn it_works_md() {
-    //     let endpoint = std::env::var("SHARING_ENDPOINT").unwrap();
-    //     let token = std::env::var("SHARING_TOKEN").unwrap();
-    //     let client = DeltaSharingClient::new(endpoint, token);
-
-    //     let share = Share::new("tim_dikland_share", None);
-    //     let schema = Schema::new(share, "sse", None);
-    //     let table = Table::new(schema, "customers", None, "my-storage-path", None);
-    //     let shares = client.get_table_metadata(&table).await;
-
-    //     println!("{shares:?}");
-    //     assert!(true);
-    // }
-
-    // #[tokio::test]
-    // async fn it_works_files() {
-    //     let endpoint = std::env::var("SHARING_ENDPOINT").unwrap();
-    //     let token = std::env::var("SHARING_TOKEN").unwrap();
-    //     let client = DeltaSharingClient::new(endpoint, token);
-
-    //     let share = Share::new("tim_dikland_share", None);
-    //     let schema = Schema::new(share, "sse", None);
-    //     let table = Table::new(schema, "config", None, "my-storage-path", None);
-    //     let shares = client.get_table_files(&table).await;
-
-    //     println!("{shares:?}");
-    //     assert!(false);
-    // }
 }

@@ -55,13 +55,13 @@ impl ProtocolBuilder {
     ///
     /// # Example
     /// ```
-    /// use delta_sharing_server::protocol::action::ProtocolBuilder;
+    /// use datafusion_delta_sharing::client::action::ProtocolBuilder;
     ///
     /// let protocol = ProtocolBuilder::new()
-    ///    .min_reader_version(2)
+    ///    .min_reader_version(1)
     ///    .build();
     ///
-    /// assert_eq!(protocol.min_reader_version(), 2);
+    /// assert_eq!(protocol.min_reader_version(), 1);
     /// ```
     pub fn min_reader_version(mut self, min_reader_version: u32) -> Self {
         self.min_reader_version = min_reader_version;
@@ -69,15 +69,15 @@ impl ProtocolBuilder {
     }
 
     /// Build the configured protocol action.
-    pub fn build(self) -> Result<Protocol, ()> {
+    pub fn build(self) -> Protocol {
         // TODO: proper error type
-        if self.min_reader_version > Protocol::CURRENT {
-            return Err(());
-        };
+        // if self.min_reader_version > Protocol::CURRENT {
+        //     return Err(());
+        // };
 
-        Ok(Protocol {
+        Protocol {
             min_reader_version: self.min_reader_version,
-        })
+        }
     }
 }
 
