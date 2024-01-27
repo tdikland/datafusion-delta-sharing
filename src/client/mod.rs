@@ -1,6 +1,7 @@
 use reqwest::{Client, Method, Response, StatusCode, Url};
 use serde::Deserialize;
-use serde_json::Deserializer;
+use serde_json::{json, Deserializer};
+use tracing::{debug, info, trace, warn};
 
 use self::{
     action::File,
@@ -43,16 +44,27 @@ impl DeltaSharingClient {
         }
     }
 
+    pub fn profile(&self) -> &DeltaSharingProfile {
+        &self.profile
+    }
+
     pub async fn list_shares_paginated(
         &self,
         pagination: &Pagination,
     ) -> Result<ListSharesPaginated, DeltaSharingError> {
         let mut url = self.endpoint.clone();
-        url.set_path(&format!("/shares"));
+        url.path_segments_mut()
+            .expect("valid base")
+            .push(&format!("/shares"));
         url.set_pagination(&pagination);
+
+        debug!("requesting: {}", url);
 
         let response = self.request(Method::GET, url).await?;
         let status = response.status();
+
+        info!("STATUS: {}", status);
+
         response
             .json::<ServerResponse<ListSharesPaginated>>()
             .await?
@@ -63,6 +75,7 @@ impl DeltaSharingClient {
         let mut shares = vec![];
         let mut pagination = Pagination::default();
         loop {
+            trace!("requesting page of shares: {:?}", pagination);
             let response = self.list_shares_paginated(&pagination).await?;
             pagination.set_next_token(response.next_page_token().map(ToOwned::to_owned));
             shares.extend(response);
@@ -79,7 +92,9 @@ impl DeltaSharingClient {
         pagination: &Pagination,
     ) -> Result<ListSchemasPaginated, DeltaSharingError> {
         let mut url = self.endpoint.clone();
-        url.set_path(&format!("/shares/{}/schemas", share));
+        url.path_segments_mut()
+            .expect("valid base")
+            .push(&format!("/shares/{}/schemas", share));
         url.set_pagination(pagination);
 
         let response = self.request(Method::GET, url).await?;
@@ -110,7 +125,7 @@ impl DeltaSharingClient {
         pagination: &Pagination,
     ) -> Result<ListTablesPaginated, DeltaSharingError> {
         let mut url = self.endpoint.clone();
-        url.set_path(&format!(
+        url.path_segments_mut().expect("valid base").push(&format!(
             "/shares/{}/schemas/{}/tables",
             schema.share_name(),
             schema.name()
@@ -147,7 +162,9 @@ impl DeltaSharingClient {
         pagination: &Pagination,
     ) -> Result<ListTablesPaginated, DeltaSharingError> {
         let mut url = self.endpoint.clone();
-        url.set_path(&format!("/shares/{}/all-tables", share.name()));
+        url.path_segments_mut()
+            .expect("valid base")
+            .push(&format!("/shares/{}/all-tables", share.name()));
         url.set_pagination(pagination);
 
         let response = self.request(Method::GET, url).await?;
@@ -180,7 +197,7 @@ impl DeltaSharingClient {
         starting_timestamp: Option<&str>,
     ) -> Result<u64, DeltaSharingError> {
         let mut url = self.endpoint.clone();
-        url.set_path(&format!(
+        url.path_segments_mut().expect("valid base").push(&format!(
             "/shares/{}/schemas/{}/tables/{}/version",
             table.share_name(),
             table.schema_name(),
@@ -206,14 +223,17 @@ impl DeltaSharingClient {
     ) -> Result<(Protocol, Metadata), DeltaSharingError> {
         let mut url = self.endpoint.clone();
         url.set_path(&format!(
-            "/shares/{}/schemas/{}/tables/{}/metadata",
+            "{}/shares/{}/schemas/{}/tables/{}/metadata",
+            url.path(),
             table.share_name(),
             table.schema_name(),
             table.name()
         ));
+        debug!("requesting: {}", url);
 
         let response = self.request(Method::GET, url).await?;
         let status = response.status();
+        debug!("STATUS: {}", status);
 
         if !status.is_success() {
             let res = response.json::<ErrorResponse>().await.unwrap();
@@ -249,14 +269,26 @@ impl DeltaSharingClient {
         _limit: Option<u32>,
     ) -> Result<Vec<File>, DeltaSharingError> {
         let mut url = self.endpoint.clone();
-        url.set_path(&format!(
-            "/shares/{}/schemas/{}/tables/{}/metadata",
+        url.path_segments_mut().expect("valid base").extend([
+            "shares",
             table.share_name(),
+            "schemas",
             table.schema_name(),
-            table.name()
-        ));
+            "tables",
+            table.name(),
+            "query",
+        ]);
 
-        let response = self.request(Method::POST, url).await?;
+        debug!("requesting: {}", url);
+
+        let request = self
+            .client
+            .request(Method::POST, url)
+            .json(&json!({}))
+            .bearer_auth(self.profile.token());
+
+        debug!("request: {:?}", request);
+        let response = request.send().await?;
         let status = response.status();
 
         if !status.is_success() {

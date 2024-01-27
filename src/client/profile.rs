@@ -1,11 +1,15 @@
-use reqwest::Url;
+use std::{fs::File, path::Path};
 
-// #[derive(Debug, Clone)]
-// struct Profile {
-//     share_credentials_version: u32,
-//     enpoint: String,
-//     bearer_token: Option<String>,
-// }
+use reqwest::Url;
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Profile {
+    share_credentials_version: u32,
+    endpoint: String,
+    bearer_token: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub enum DeltaSharingProfile {
@@ -32,6 +36,16 @@ impl DeltaSharingProfile {
 
     pub fn url(&self) -> Url {
         Url::parse(self.endpoint()).unwrap()
+    }
+
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Self {
+        let path = path.as_ref();
+        let file = File::open(path).unwrap();
+        let profile: Profile = serde_json::from_reader(file).unwrap();
+        Self::BearerToken(BearerTokenProfile {
+            endpoint: profile.endpoint,
+            token: profile.bearer_token.unwrap(),
+        })
     }
 }
 

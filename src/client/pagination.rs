@@ -49,6 +49,10 @@ pub trait PaginationExt {
 
 impl PaginationExt for Url {
     fn set_pagination(&mut self, pagination: &Pagination) {
+        if pagination.max_results.is_none() && pagination.page_token.is_none() {
+            return;
+        }
+
         let mut query_pairs = self.query_pairs_mut();
         if let Some(m) = pagination.max_results {
             query_pairs.append_pair(QUERY_PARAM_MAX_RESULTS, &m.to_string());

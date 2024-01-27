@@ -11,9 +11,9 @@ arrow-schema = "50.0.0"
 async-trait = "0.1.77"
 bytes = "1.5.0"
 chrono = "0.4.31"
-datafusion = "34.0.0"
+datafusion = "35.0.0"
 futures = "0.3.30"
-object_store = { version = "0.8.0", features = ["http"] }
+object_store = { version = "0.9.0", features = ["http"] }
 parquet = { version = "50.0.0", features = ["async"] }
 reqwest = { version = "0.11.23", features = ["json"] }
 reqwest-middleware = "0.2.4"
@@ -27,6 +27,7 @@ tracing-subscriber = { version = "0.3.18", features = [
     "tracing",
     "env-filter",
 ] }
+tracing-test = { version = "0.2.4" }
 
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["full"] }

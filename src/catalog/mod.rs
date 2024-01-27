@@ -8,8 +8,8 @@ use datafusion::{
 
 use crate::{
     client::{profile::DeltaSharingProfile, DeltaSharingClient},
+    datasource::DeltaSharingTableBuilder,
     securable::{Share, Table},
-    DeltaSharingTableBuilder,
 };
 
 pub struct DeltaSharingCatalog {
@@ -107,8 +107,8 @@ impl SchemaProvider for DeltaSharingSchema {
 
     async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
         let table = Table::new(&self.share_name, &self.schema_name, name, None, None);
-        let table_builder = DeltaSharingTableBuilder::new(&table);
-        let table = table_builder.build().await;
+        let table_builder = DeltaSharingTableBuilder::new(self.client.profile().clone(), table);
+        let table = table_builder.build().await.unwrap();
         Some(Arc::new(table))
     }
 
