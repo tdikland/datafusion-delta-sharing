@@ -132,9 +132,9 @@ impl TableProvider for DeltaSharingTable {
     async fn scan(
         &self,
         _state: &SessionState,
-        _projection: Option<&Vec<usize>>,
+        projection: Option<&Vec<usize>>,
         _filters: &[Expr],
-        _limit: Option<usize>,
+        limit: Option<usize>,
     ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
         let files = self.list_files_for_scan().await;
         let partitioned_files = files
@@ -158,13 +158,23 @@ impl TableProvider for DeltaSharingTable {
             })
             .collect::<Vec<_>>();
 
+        let table_partition_cols: Vec<String> = vec![];
+        let file_schema = Arc::new(Schema::new(
+            self.schema()
+                .fields()
+                .iter()
+                .filter(|f| !table_partition_cols.contains(f.name()))
+                .cloned()
+                .collect::<Vec<_>>(),
+        ));
+
         let config = FileScanConfig {
-            object_store_url: ObjectStoreUrl::parse("file:///").unwrap(),
-            file_schema: self.schema(),
+            object_store_url: ObjectStoreUrl::local_filesystem(),
+            file_schema,
             file_groups: vec![partitioned_files],
             statistics: datafusion::common::stats::Statistics::new_unknown(&Schema::empty()),
-            projection: None,
-            limit: None,
+            projection: projection.cloned(),
+            limit,
             output_ordering: vec![],
             table_partition_cols: vec![],
         };
@@ -180,24 +190,24 @@ impl TableProvider for DeltaSharingTable {
     }
 }
 
-async fn p() -> Arc<dyn ExecutionPlan> {
-    let config = FileScanConfig {
-        object_store_url: ObjectStoreUrl::parse("file:///").unwrap(),
-        file_schema: Arc::new(Schema::empty()),
-        file_groups: vec![],
-        statistics: datafusion::common::stats::Statistics::new_unknown(&Schema::empty()),
-        projection: None,
-        limit: None,
-        output_ordering: vec![],
-        table_partition_cols: vec![],
-    };
-    let pred = None;
-    let size_hint = None;
+// async fn p() -> Arc<dyn ExecutionPlan> {
+//     let config = FileScanConfig {
+//         object_store_url: ObjectStoreUrl::parse("file:///").unwrap(),
+//         file_schema: Arc::new(Schema::empty()),
+//         file_groups: vec![],
+//         statistics: datafusion::common::stats::Statistics::new_unknown(&Schema::empty()),
+//         projection: projection,
+//         limit: None,
+//         output_ordering: vec![],
+//         table_partition_cols: vec![],
+//     };
+//     let pred = None;
+//     let size_hint = None;
 
-    let exec = ParquetExec::new(config, pred, size_hint)
-        .with_enable_bloom_filter(false)
-        .with_enable_page_index(false)
-        .with_parquet_file_reader_factory(Arc::new(SignedParquetFileReaderFactory::new()));
+//     let exec = ParquetExec::new(config, pred, size_hint)
+//         .with_enable_bloom_filter(false)
+//         .with_enable_page_index(false)
+//         .with_parquet_file_reader_factory(Arc::new(SignedParquetFileReaderFactory::new()));
 
-    Arc::new(exec)
-}
+//     Arc::new(exec)
+// }

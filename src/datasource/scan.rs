@@ -1,6 +1,6 @@
 #[derive(Debug)]
 struct DeltaSharingScan {
-    _parquet_scan: Arc<dyn ExecutionPlan>,
+    inner: ParquetExec,
 }
 
 impl DisplayAs for DeltaSharingScan {
