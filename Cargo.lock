@@ -278,6 +278,9 @@ name = "arrow-schema"
 version = "50.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ff3e9c01f7cd169379d269f926892d0e622a704960350d09d331be3ec9e0029"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "arrow-select"
@@ -1012,10 +1015,12 @@ dependencies = [
  "reqwest-tracing",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "tracing-test",
+ "url",
 ]
 
 [[package]]

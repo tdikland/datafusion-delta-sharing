@@ -6,296 +6,89 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Display};
 
-use datafusion::arrow::error::ArrowError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use datafusion::arrow::datatypes::{
-    DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema,
-    SchemaRef as ArrowSchemaRef, TimeUnit,
-};
+pub type DeltaResult<T, E = Error> = std::result::Result<T, E>;
+
+#[derive(thiserror::Error, Debug)]
+#[allow(missing_docs)]
+pub enum Error {
+    #[error("Arrow error: {0}")]
+    Arrow(#[from] arrow_schema::ArrowError),
+
+    #[error("Generic delta kernel error: {0}")]
+    Generic(String),
+
+    #[error("Generic error: {source}")]
+    GenericError {
+        /// Source error
+        source: Box<dyn std::error::Error + Send + Sync + 'static>,
+    },
+
+    #[error("Arrow error: {0}")]
+    Parquet(#[from] parquet::errors::ParquetError),
+
+    #[error("Error interacting with object store: {0}")]
+    ObjectStore(#[from] object_store::Error),
+
+    #[error("File not found: {0}")]
+    FileNotFound(String),
+
+    #[error("{0}")]
+    MissingColumn(String),
+
+    #[error("Expected column type: {0}")]
+    UnexpectedColumnType(String),
+
+    #[error("Expected is missing: {0}")]
+    MissingData(String),
+
+    #[error("No table version found.")]
+    MissingVersion,
+
+    #[error("Deletion Vector error: {0}")]
+    DeletionVector(String),
+
+    #[error("Schema error: {0}")]
+    Schema(String),
+
+    #[error("Invalid url: {0}")]
+    InvalidUrl(#[from] url::ParseError),
+
+    #[error("Invalid url: {0}")]
+    MalformedJson(#[from] serde_json::Error),
+
+    #[error("No table metadata found in delta log.")]
+    MissingMetadata,
+
+    /// Error returned when the log contains invalid stats JSON.
+    #[error("Invalid JSON in invariant expression, line=`{line}`, err=`{json_err}`")]
+    InvalidInvariantJson {
+        /// JSON error details returned when parsing the invariant expression JSON.
+        json_err: serde_json::error::Error,
+        /// Invariant expression.
+        line: String,
+    },
+
+    #[error("Table metadata is invalid: {0}")]
+    MetadataError(String),
+
+    #[error("Failed to parse value '{0}' as '{1}'")]
+    Parse(String, DataType),
+}
+
+pub trait DataCheck {
+    /// The name of the specific check
+    fn get_name(&self) -> &str;
+    /// The SQL expression to use for the check
+    fn get_expression(&self) -> &str;
+}
 
 /// Type alias for a top level schema
 pub type Schema = StructType;
 /// Schema reference type
 pub type SchemaRef = Arc<StructType>;
-
-impl TryFrom<&StructType> for ArrowSchema {
-    type Error = ArrowError;
-
-    fn try_from(s: &StructType) -> Result<Self, ArrowError> {
-        let fields = s
-            .fields()
-            .iter()
-            .map(<ArrowField as TryFrom<&StructField>>::try_from)
-            .collect::<Result<Vec<ArrowField>, ArrowError>>()?;
-
-        Ok(ArrowSchema::new(fields))
-    }
-}
-
-impl TryFrom<&StructField> for ArrowField {
-    type Error = ArrowError;
-
-    fn try_from(f: &StructField) -> Result<Self, ArrowError> {
-        let metadata = f
-            .metadata()
-            .iter()
-            .map(|(key, val)| Ok((key.clone(), serde_json::to_string(val)?)))
-            .collect::<Result<_, serde_json::Error>>()
-            .map_err(|err| ArrowError::JsonError(err.to_string()))?;
-
-        let field = ArrowField::new(
-            f.name(),
-            ArrowDataType::try_from(f.data_type()).unwrap(),
-            f.is_nullable(),
-        )
-        .with_metadata(metadata);
-
-        Ok(field)
-    }
-}
-
-impl TryFrom<&ArrayType> for ArrowField {
-    type Error = ArrowError;
-
-    fn try_from(a: &ArrayType) -> Result<Self, ArrowError> {
-        Ok(ArrowField::new(
-            "item",
-            ArrowDataType::try_from(a.element_type())?,
-            a.contains_null(),
-        ))
-    }
-}
-
-const MAP_KEYS_NAME: &str = "keys";
-const MAP_VALUES_NAME: &str = "values";
-
-impl TryFrom<&MapType> for ArrowField {
-    type Error = ArrowError;
-
-    fn try_from(a: &MapType) -> Result<Self, ArrowError> {
-        Ok(ArrowField::new(
-            "entries",
-            ArrowDataType::Struct(
-                vec![
-                    ArrowField::new(MAP_KEYS_NAME, ArrowDataType::try_from(a.key_type())?, false),
-                    ArrowField::new(
-                        MAP_VALUES_NAME,
-                        ArrowDataType::try_from(a.value_type())?,
-                        a.value_contains_null(),
-                    ),
-                ]
-                .into(),
-            ),
-            false, // always non-null
-        ))
-    }
-}
-
-impl TryFrom<&DataType> for ArrowDataType {
-    type Error = ArrowError;
-
-    fn try_from(t: &DataType) -> Result<Self, ArrowError> {
-        match t {
-            DataType::Primitive(p) => {
-                match p {
-                    PrimitiveType::String => Ok(ArrowDataType::Utf8),
-                    PrimitiveType::Long => Ok(ArrowDataType::Int64), // undocumented type
-                    PrimitiveType::Integer => Ok(ArrowDataType::Int32),
-                    PrimitiveType::Short => Ok(ArrowDataType::Int16),
-                    PrimitiveType::Byte => Ok(ArrowDataType::Int8),
-                    PrimitiveType::Float => Ok(ArrowDataType::Float32),
-                    PrimitiveType::Double => Ok(ArrowDataType::Float64),
-                    PrimitiveType::Boolean => Ok(ArrowDataType::Boolean),
-                    PrimitiveType::Binary => Ok(ArrowDataType::Binary),
-                    PrimitiveType::Decimal(precision, scale) => {
-                        let precision = u8::try_from(*precision).map_err(|_| {
-                            ArrowError::SchemaError(format!(
-                                "Invalid precision for decimal: {}",
-                                precision
-                            ))
-                        })?;
-                        let scale = i8::try_from(*scale).map_err(|_| {
-                            ArrowError::SchemaError(format!("Invalid scale for decimal: {}", scale))
-                        })?;
-
-                        if precision <= 38 {
-                            Ok(ArrowDataType::Decimal128(precision, scale))
-                        } else if precision <= 76 {
-                            Ok(ArrowDataType::Decimal256(precision, scale))
-                        } else {
-                            Err(ArrowError::SchemaError(format!(
-                                "Precision too large to be represented in Arrow: {}",
-                                precision
-                            )))
-                        }
-                    }
-                    PrimitiveType::Date => {
-                        // A calendar date, represented as a year-month-day triple without a
-                        // timezone. Stored as 4 bytes integer representing days since 1970-01-01
-                        Ok(ArrowDataType::Date32)
-                    }
-                    PrimitiveType::Timestamp => {
-                        // Issue: https://github.com/delta-io/delta/issues/643
-                        Ok(ArrowDataType::Timestamp(TimeUnit::Microsecond, None))
-                    }
-                }
-            }
-            DataType::Struct(s) => Ok(ArrowDataType::Struct(
-                s.fields()
-                    .iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<ArrowField>, ArrowError>>()?
-                    .into(),
-            )),
-            DataType::Array(a) => Ok(ArrowDataType::List(Arc::new(a.as_ref().try_into()?))),
-            DataType::Map(m) => Ok(ArrowDataType::Map(
-                Arc::new(ArrowField::new(
-                    "entries",
-                    ArrowDataType::Struct(
-                        vec![
-                            ArrowField::new(MAP_KEYS_NAME, m.key_type().try_into()?, false),
-                            ArrowField::new(
-                                MAP_VALUES_NAME,
-                                m.value_type().try_into()?,
-                                m.value_contains_null(),
-                            ),
-                        ]
-                        .into(),
-                    ),
-                    false,
-                )),
-                false,
-            )),
-        }
-    }
-}
-
-impl TryFrom<&ArrowSchema> for StructType {
-    type Error = ArrowError;
-
-    fn try_from(arrow_schema: &ArrowSchema) -> Result<Self, ArrowError> {
-        let new_fields: Result<Vec<StructField>, _> = arrow_schema
-            .fields()
-            .iter()
-            .map(|field| field.as_ref().try_into())
-            .collect();
-        Ok(StructType::new(new_fields?))
-    }
-}
-
-impl TryFrom<ArrowSchemaRef> for StructType {
-    type Error = ArrowError;
-
-    fn try_from(arrow_schema: ArrowSchemaRef) -> Result<Self, ArrowError> {
-        arrow_schema.as_ref().try_into()
-    }
-}
-
-impl TryFrom<&ArrowField> for StructField {
-    type Error = ArrowError;
-
-    fn try_from(arrow_field: &ArrowField) -> Result<Self, ArrowError> {
-        Ok(StructField::new(
-            arrow_field.name().clone(),
-            arrow_field.data_type().try_into()?,
-            arrow_field.is_nullable(),
-        )
-        .with_metadata(arrow_field.metadata().iter().map(|(k, v)| (k.clone(), v))))
-    }
-}
-
-impl TryFrom<&ArrowDataType> for DataType {
-    type Error = ArrowError;
-
-    fn try_from(arrow_datatype: &ArrowDataType) -> Result<Self, ArrowError> {
-        match arrow_datatype {
-            ArrowDataType::Utf8 => Ok(DataType::Primitive(PrimitiveType::String)),
-            ArrowDataType::LargeUtf8 => Ok(DataType::Primitive(PrimitiveType::String)),
-            ArrowDataType::Int64 => Ok(DataType::Primitive(PrimitiveType::Long)), // undocumented type
-            ArrowDataType::Int32 => Ok(DataType::Primitive(PrimitiveType::Integer)),
-            ArrowDataType::Int16 => Ok(DataType::Primitive(PrimitiveType::Short)),
-            ArrowDataType::Int8 => Ok(DataType::Primitive(PrimitiveType::Byte)),
-            ArrowDataType::UInt64 => Ok(DataType::Primitive(PrimitiveType::Long)), // undocumented type
-            ArrowDataType::UInt32 => Ok(DataType::Primitive(PrimitiveType::Integer)),
-            ArrowDataType::UInt16 => Ok(DataType::Primitive(PrimitiveType::Short)),
-            ArrowDataType::UInt8 => Ok(DataType::Primitive(PrimitiveType::Boolean)),
-            ArrowDataType::Float32 => Ok(DataType::Primitive(PrimitiveType::Float)),
-            ArrowDataType::Float64 => Ok(DataType::Primitive(PrimitiveType::Double)),
-            ArrowDataType::Boolean => Ok(DataType::Primitive(PrimitiveType::Boolean)),
-            ArrowDataType::Binary => Ok(DataType::Primitive(PrimitiveType::Binary)),
-            ArrowDataType::FixedSizeBinary(_) => Ok(DataType::Primitive(PrimitiveType::Binary)),
-            ArrowDataType::LargeBinary => Ok(DataType::Primitive(PrimitiveType::Binary)),
-            ArrowDataType::Decimal128(p, s) => Ok(DataType::Primitive(PrimitiveType::Decimal(
-                *p as i32, *s as i32,
-            ))),
-            ArrowDataType::Decimal256(p, s) => Ok(DataType::Primitive(PrimitiveType::Decimal(
-                *p as i32, *s as i32,
-            ))),
-            ArrowDataType::Date32 => Ok(DataType::Primitive(PrimitiveType::Date)),
-            ArrowDataType::Date64 => Ok(DataType::Primitive(PrimitiveType::Date)),
-            ArrowDataType::Timestamp(TimeUnit::Microsecond, None) => {
-                Ok(DataType::Primitive(PrimitiveType::Timestamp))
-            }
-            ArrowDataType::Timestamp(TimeUnit::Microsecond, Some(tz))
-                if tz.eq_ignore_ascii_case("utc") =>
-            {
-                Ok(DataType::Primitive(PrimitiveType::Timestamp))
-            }
-            ArrowDataType::Struct(fields) => {
-                let converted_fields: Result<Vec<StructField>, _> = fields
-                    .iter()
-                    .map(|field| field.as_ref().try_into())
-                    .collect();
-                Ok(DataType::Struct(Box::new(StructType::new(
-                    converted_fields?,
-                ))))
-            }
-            ArrowDataType::List(field) => Ok(DataType::Array(Box::new(ArrayType::new(
-                (*field).data_type().try_into()?,
-                (*field).is_nullable(),
-            )))),
-            ArrowDataType::LargeList(field) => Ok(DataType::Array(Box::new(ArrayType::new(
-                (*field).data_type().try_into()?,
-                (*field).is_nullable(),
-            )))),
-            ArrowDataType::FixedSizeList(field, _) => Ok(DataType::Array(Box::new(
-                ArrayType::new((*field).data_type().try_into()?, (*field).is_nullable()),
-            ))),
-            ArrowDataType::Map(field, _) => {
-                if let ArrowDataType::Struct(struct_fields) = field.data_type() {
-                    let key_type = struct_fields[0].data_type().try_into()?;
-                    let value_type = struct_fields[1].data_type().try_into()?;
-                    let value_type_nullable = struct_fields[1].is_nullable();
-                    Ok(DataType::Map(Box::new(MapType::new(
-                        key_type,
-                        value_type,
-                        value_type_nullable,
-                    ))))
-                } else {
-                    panic!("DataType::Map should contain a struct field child");
-                }
-            }
-            s => Err(ArrowError::SchemaError(format!(
-                "Invalid data type for Delta Lake: {s}"
-            ))),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum Error {
-    Other,
-}
-
-impl Display for Error {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
-
-impl std::error::Error for Error {}
 
 /// A value that can be stored in the metadata of a Delta table schema entity.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -378,6 +171,16 @@ impl Invariant {
     }
 }
 
+impl DataCheck for Invariant {
+    fn get_name(&self) -> &str {
+        &self.field_name
+    }
+
+    fn get_expression(&self) -> &str {
+        &self.invariant_sql
+    }
+}
+
 /// Represents a struct field defined in the Delta table schema.
 // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#Schema-Serialization-Format
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -409,10 +212,10 @@ impl Eq for StructField {}
 
 impl StructField {
     /// Creates a new field
-    pub fn new(name: impl Into<String>, data_type: DataType, nullable: bool) -> Self {
+    pub fn new(name: impl Into<String>, data_type: impl Into<DataType>, nullable: bool) -> Self {
         Self {
             name: name.into(),
-            data_type,
+            data_type: data_type.into(),
             nullable,
             metadata: HashMap::default(),
         }
@@ -455,7 +258,9 @@ impl StructField {
         match phys_name {
             None => Ok(&self.name),
             Some(MetadataValue::String(s)) => Ok(s),
-            Some(MetadataValue::Number(_)) => Err(Error::Other),
+            Some(MetadataValue::Number(_)) => Err(Error::MetadataError(
+                "Unexpected type for physical name".to_string(),
+            )),
         }
     }
 
@@ -474,7 +279,7 @@ impl StructField {
 
 /// A struct is used to represent both the top-level schema of the table
 /// as well as struct columns that contain nested columns.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Eq)]
 pub struct StructType {
     #[serde(rename = "type")]
     /// The type of this struct
@@ -505,8 +310,10 @@ impl StructType {
             .enumerate()
             .find(|(_, b)| b.name() == name)
             .ok_or_else(|| {
-                let _valid_fields: Vec<_> = self.fields.iter().map(|f| f.name()).collect();
-                Error::Other
+                let valid_fields: Vec<_> = self.fields.iter().map(|f| f.name()).collect();
+                Error::Schema(format!(
+                    "Unable to get field named \"{name}\". Valid fields: {valid_fields:?}"
+                ))
             })?;
         Ok(idx)
     }
@@ -572,8 +379,12 @@ impl StructType {
             if let Some(MetadataValue::String(invariant_json)) =
                 field.metadata.get(ColumnMetadataKey::Invariants.as_ref())
             {
-                let json: Value =
-                    serde_json::from_str(invariant_json).map_err(|_e| Error::Other)?;
+                let json: Value = serde_json::from_str(invariant_json).map_err(|e| {
+                    Error::InvalidInvariantJson {
+                        json_err: e,
+                        line: invariant_json.to_string(),
+                    }
+                })?;
                 if let Value::Object(json) = json {
                     if let Some(Value::Object(expr1)) = json.get("expression") {
                         if let Some(Value::String(sql)) = expr1.get("expression") {
@@ -587,7 +398,52 @@ impl StructType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+impl FromIterator<StructField> for StructType {
+    fn from_iter<T: IntoIterator<Item = StructField>>(iter: T) -> Self {
+        Self {
+            type_name: "struct".into(),
+            fields: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl<'a> FromIterator<&'a StructField> for StructType {
+    fn from_iter<T: IntoIterator<Item = &'a StructField>>(iter: T) -> Self {
+        Self {
+            type_name: "struct".into(),
+            fields: iter.into_iter().cloned().collect(),
+        }
+    }
+}
+
+impl<const N: usize> From<[StructField; N]> for StructType {
+    fn from(value: [StructField; N]) -> Self {
+        Self {
+            type_name: "struct".into(),
+            fields: value.to_vec(),
+        }
+    }
+}
+
+impl<'a, const N: usize> From<[&'a StructField; N]> for StructType {
+    fn from(value: [&'a StructField; N]) -> Self {
+        Self {
+            type_name: "struct".into(),
+            fields: value.into_iter().cloned().collect(),
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a StructType {
+    type Item = &'a StructField;
+    type IntoIter = std::slice::Iter<'a, StructField>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.fields.iter()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Eq)]
 #[serde(rename_all = "camelCase")]
 /// An array stores a variable length collection of items of some type.
 pub struct ArrayType {
@@ -623,7 +479,7 @@ impl ArrayType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Eq)]
 #[serde(rename_all = "camelCase")]
 /// A map stores an arbitrary length collection of key-value pairs
 pub struct MapType {
@@ -673,7 +529,7 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Eq)]
 #[serde(rename_all = "camelCase")]
 /// Primitive types supported by Delta
 pub enum PrimitiveType {
@@ -706,18 +562,18 @@ pub enum PrimitiveType {
         untagged
     )]
     /// Decimal: arbitrary precision decimal numbers
-    Decimal(i32, i32),
+    Decimal(u8, i8),
 }
 
 fn serialize_decimal<S: serde::Serializer>(
-    precision: &i32,
-    scale: &i32,
+    precision: &u8,
+    scale: &i8,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&format!("decimal({},{})", precision, scale))
 }
 
-fn deserialize_decimal<'de, D>(deserializer: D) -> Result<(i32, i32), D::Error>
+fn deserialize_decimal<'de, D>(deserializer: D) -> Result<(u8, i8), D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -732,13 +588,13 @@ where
     let mut parts = str_value[8..str_value.len() - 1].split(',');
     let precision = parts
         .next()
-        .and_then(|part| part.trim().parse::<i32>().ok())
+        .and_then(|part| part.trim().parse::<u8>().ok())
         .ok_or_else(|| {
             serde::de::Error::custom(format!("Invalid precision in decimal: {}", str_value))
         })?;
     let scale = parts
         .next()
-        .and_then(|part| part.trim().parse::<i32>().ok())
+        .and_then(|part| part.trim().parse::<i8>().ok())
         .ok_or_else(|| {
             serde::de::Error::custom(format!("Invalid scale in decimal: {}", str_value))
         })?;
@@ -767,9 +623,9 @@ impl Display for PrimitiveType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Eq)]
 #[serde(untagged, rename_all = "camelCase")]
-/// The data type of a column
+/// Top level delta tdatatypes
 pub enum DataType {
     /// UTF-8 encoded string of characters
     Primitive(PrimitiveType),
@@ -783,65 +639,44 @@ pub enum DataType {
     Map(Box<MapType>),
 }
 
+impl From<MapType> for DataType {
+    fn from(map_type: MapType) -> Self {
+        DataType::Map(Box::new(map_type))
+    }
+}
+
+impl From<StructType> for DataType {
+    fn from(struct_type: StructType) -> Self {
+        DataType::Struct(Box::new(struct_type))
+    }
+}
+
+impl From<ArrayType> for DataType {
+    fn from(array_type: ArrayType) -> Self {
+        DataType::Array(Box::new(array_type))
+    }
+}
+
+#[allow(missing_docs)]
 impl DataType {
-    /// create a new string type
-    pub fn string() -> Self {
-        DataType::Primitive(PrimitiveType::String)
+    pub const STRING: Self = DataType::Primitive(PrimitiveType::String);
+    pub const LONG: Self = DataType::Primitive(PrimitiveType::Long);
+    pub const INTEGER: Self = DataType::Primitive(PrimitiveType::Integer);
+    pub const SHORT: Self = DataType::Primitive(PrimitiveType::Short);
+    pub const BYTE: Self = DataType::Primitive(PrimitiveType::Byte);
+    pub const FLOAT: Self = DataType::Primitive(PrimitiveType::Float);
+    pub const DOUBLE: Self = DataType::Primitive(PrimitiveType::Double);
+    pub const BOOLEAN: Self = DataType::Primitive(PrimitiveType::Boolean);
+    pub const BINARY: Self = DataType::Primitive(PrimitiveType::Binary);
+    pub const DATE: Self = DataType::Primitive(PrimitiveType::Date);
+    pub const TIMESTAMP: Self = DataType::Primitive(PrimitiveType::Timestamp);
+
+    pub fn decimal(precision: u8, scale: i8) -> Self {
+        DataType::Primitive(PrimitiveType::Decimal(precision, scale))
     }
 
-    /// create a new long type
-    pub fn long() -> Self {
-        DataType::Primitive(PrimitiveType::Long)
-    }
-
-    /// create a new integer type
-    pub fn integer() -> Self {
-        DataType::Primitive(PrimitiveType::Integer)
-    }
-
-    /// create a new short type
-    pub fn short() -> Self {
-        DataType::Primitive(PrimitiveType::Short)
-    }
-
-    /// create a new byte type
-    pub fn byte() -> Self {
-        DataType::Primitive(PrimitiveType::Byte)
-    }
-
-    /// create a new float type
-    pub fn float() -> Self {
-        DataType::Primitive(PrimitiveType::Float)
-    }
-
-    /// create a new double type
-    pub fn double() -> Self {
-        DataType::Primitive(PrimitiveType::Double)
-    }
-
-    /// create a new boolean type
-    pub fn boolean() -> Self {
-        DataType::Primitive(PrimitiveType::Boolean)
-    }
-
-    /// create a new binary type
-    pub fn binary() -> Self {
-        DataType::Primitive(PrimitiveType::Binary)
-    }
-
-    /// create a new date type
-    pub fn date() -> Self {
-        DataType::Primitive(PrimitiveType::Date)
-    }
-
-    /// create a new timestamp type
-    pub fn timestamp() -> Self {
-        DataType::Primitive(PrimitiveType::Timestamp)
-    }
-
-    /// create a new decimal type
-    pub fn decimal(precision: usize, scale: usize) -> Self {
-        DataType::Primitive(PrimitiveType::Decimal(precision as i32, scale as i32))
+    pub fn struct_type(fields: Vec<StructField>) -> Self {
+        DataType::Struct(Box::new(StructType::new(fields)))
     }
 }
 
@@ -861,6 +696,462 @@ impl Display for DataType {
                 write!(f, ">")
             }
             DataType::Map(m) => write!(f, "map<{}, {}>", m.key_type, m.value_type),
+        }
+    }
+}
+
+
+use arrow_schema::{
+    ArrowError, DataType as ArrowDataType, Field as ArrowField, FieldRef as ArrowFieldRef,
+    Schema as ArrowSchema, SchemaRef as ArrowSchemaRef, TimeUnit,
+};
+
+
+
+const MAP_ROOT_DEFAULT: &str = "entries";
+const MAP_KEY_DEFAULT: &str = "keys";
+const MAP_VALUE_DEFAULT: &str = "values";
+const LIST_ROOT_DEFAULT: &str = "item";
+
+
+
+impl TryFrom<&StructType> for ArrowSchema {
+    type Error = ArrowError;
+
+    fn try_from(s: &StructType) -> Result<Self, ArrowError> {
+        let fields = s
+            .fields()
+            .iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<ArrowField>, ArrowError>>()?;
+
+        Ok(ArrowSchema::new(fields))
+    }
+}
+
+impl TryFrom<&StructField> for ArrowField {
+    type Error = ArrowError;
+
+    fn try_from(f: &StructField) -> Result<Self, ArrowError> {
+        let metadata = f
+            .metadata()
+            .iter()
+            .map(|(key, val)| Ok((key.clone(), serde_json::to_string(val)?)))
+            .collect::<Result<_, serde_json::Error>>()
+            .map_err(|err| ArrowError::JsonError(err.to_string()))?;
+
+        let field = ArrowField::new(
+            f.name(),
+            ArrowDataType::try_from(f.data_type())?,
+            f.is_nullable(),
+        )
+        .with_metadata(metadata);
+
+        Ok(field)
+    }
+}
+
+impl TryFrom<&ArrayType> for ArrowField {
+    type Error = ArrowError;
+    fn try_from(a: &ArrayType) -> Result<Self, ArrowError> {
+        Ok(ArrowField::new(
+            LIST_ROOT_DEFAULT,
+            ArrowDataType::try_from(a.element_type())?,
+            // TODO check how to handle nullability
+            a.contains_null(),
+        ))
+    }
+}
+
+impl TryFrom<&MapType> for ArrowField {
+    type Error = ArrowError;
+
+    fn try_from(a: &MapType) -> Result<Self, ArrowError> {
+        Ok(ArrowField::new(
+            MAP_ROOT_DEFAULT,
+            ArrowDataType::Struct(
+                vec![
+                    ArrowField::new(
+                        MAP_KEY_DEFAULT,
+                        ArrowDataType::try_from(a.key_type())?,
+                        false,
+                    ),
+                    ArrowField::new(
+                        MAP_VALUE_DEFAULT,
+                        ArrowDataType::try_from(a.value_type())?,
+                        a.value_contains_null(),
+                    ),
+                ]
+                .into(),
+            ),
+            // always non-null
+            false,
+        ))
+    }
+}
+
+impl TryFrom<&DataType> for ArrowDataType {
+    type Error = ArrowError;
+
+    fn try_from(t: &DataType) -> Result<Self, ArrowError> {
+        match t {
+            DataType::Primitive(p) => {
+                match p {
+                    PrimitiveType::String => Ok(ArrowDataType::Utf8),
+                    PrimitiveType::Long => Ok(ArrowDataType::Int64), // undocumented type
+                    PrimitiveType::Integer => Ok(ArrowDataType::Int32),
+                    PrimitiveType::Short => Ok(ArrowDataType::Int16),
+                    PrimitiveType::Byte => Ok(ArrowDataType::Int8),
+                    PrimitiveType::Float => Ok(ArrowDataType::Float32),
+                    PrimitiveType::Double => Ok(ArrowDataType::Float64),
+                    PrimitiveType::Boolean => Ok(ArrowDataType::Boolean),
+                    PrimitiveType::Binary => Ok(ArrowDataType::Binary),
+                    PrimitiveType::Decimal(precision, scale) => {
+                        if precision <= &38 {
+                            Ok(ArrowDataType::Decimal128(*precision, *scale))
+                        } else if precision <= &76 {
+                            Ok(ArrowDataType::Decimal256(*precision, *scale))
+                        } else {
+                            Err(ArrowError::SchemaError(format!(
+                                "Precision too large to be represented in Arrow: {}",
+                                precision
+                            )))
+                        }
+                    }
+                    PrimitiveType::Date => {
+                        // A calendar date, represented as a year-month-day triple without a
+                        // timezone. Stored as 4 bytes integer representing days since 1970-01-01
+                        Ok(ArrowDataType::Date32)
+                    }
+                    PrimitiveType::Timestamp => {
+                        // Issue: https://github.com/delta-io/delta/issues/643
+                        Ok(ArrowDataType::Timestamp(TimeUnit::Microsecond, None))
+                    }
+                }
+            }
+            DataType::Struct(s) => Ok(ArrowDataType::Struct(
+                s.fields()
+                    .iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<ArrowField>, ArrowError>>()?
+                    .into(),
+            )),
+            DataType::Array(a) => Ok(ArrowDataType::List(Arc::new(a.as_ref().try_into()?))),
+            DataType::Map(m) => Ok(ArrowDataType::Map(Arc::new(m.as_ref().try_into()?), false)),
+        }
+    }
+}
+
+impl TryFrom<&ArrowSchema> for StructType {
+    type Error = ArrowError;
+
+    fn try_from(arrow_schema: &ArrowSchema) -> Result<Self, ArrowError> {
+        let new_fields: Result<Vec<StructField>, _> = arrow_schema
+            .fields()
+            .iter()
+            .map(|field| field.as_ref().try_into())
+            .collect();
+        Ok(StructType::new(new_fields?))
+    }
+}
+
+impl TryFrom<ArrowSchemaRef> for StructType {
+    type Error = ArrowError;
+
+    fn try_from(arrow_schema: ArrowSchemaRef) -> Result<Self, ArrowError> {
+        arrow_schema.as_ref().try_into()
+    }
+}
+
+impl TryFrom<&ArrowField> for StructField {
+    type Error = ArrowError;
+
+    fn try_from(arrow_field: &ArrowField) -> Result<Self, ArrowError> {
+        Ok(StructField::new(
+            arrow_field.name().clone(),
+            DataType::try_from(arrow_field.data_type())?,
+            arrow_field.is_nullable(),
+        )
+        .with_metadata(arrow_field.metadata().iter().map(|(k, v)| (k.clone(), v))))
+    }
+}
+
+impl TryFrom<&ArrowDataType> for DataType {
+    type Error = ArrowError;
+
+    fn try_from(arrow_datatype: &ArrowDataType) -> Result<Self, ArrowError> {
+        match arrow_datatype {
+            ArrowDataType::Utf8 => Ok(DataType::Primitive(PrimitiveType::String)),
+            ArrowDataType::LargeUtf8 => Ok(DataType::Primitive(PrimitiveType::String)),
+            ArrowDataType::Int64 => Ok(DataType::Primitive(PrimitiveType::Long)), // undocumented type
+            ArrowDataType::Int32 => Ok(DataType::Primitive(PrimitiveType::Integer)),
+            ArrowDataType::Int16 => Ok(DataType::Primitive(PrimitiveType::Short)),
+            ArrowDataType::Int8 => Ok(DataType::Primitive(PrimitiveType::Byte)),
+            ArrowDataType::UInt64 => Ok(DataType::Primitive(PrimitiveType::Long)), // undocumented type
+            ArrowDataType::UInt32 => Ok(DataType::Primitive(PrimitiveType::Integer)),
+            ArrowDataType::UInt16 => Ok(DataType::Primitive(PrimitiveType::Short)),
+            ArrowDataType::UInt8 => Ok(DataType::Primitive(PrimitiveType::Byte)),
+            ArrowDataType::Float32 => Ok(DataType::Primitive(PrimitiveType::Float)),
+            ArrowDataType::Float64 => Ok(DataType::Primitive(PrimitiveType::Double)),
+            ArrowDataType::Boolean => Ok(DataType::Primitive(PrimitiveType::Boolean)),
+            ArrowDataType::Binary => Ok(DataType::Primitive(PrimitiveType::Binary)),
+            ArrowDataType::FixedSizeBinary(_) => Ok(DataType::Primitive(PrimitiveType::Binary)),
+            ArrowDataType::LargeBinary => Ok(DataType::Primitive(PrimitiveType::Binary)),
+            ArrowDataType::Decimal128(p, s) => {
+                Ok(DataType::Primitive(PrimitiveType::Decimal(*p, *s)))
+            }
+            ArrowDataType::Decimal256(p, s) => {
+                Ok(DataType::Primitive(PrimitiveType::Decimal(*p, *s)))
+            }
+            ArrowDataType::Date32 => Ok(DataType::Primitive(PrimitiveType::Date)),
+            ArrowDataType::Date64 => Ok(DataType::Primitive(PrimitiveType::Date)),
+            ArrowDataType::Timestamp(TimeUnit::Microsecond, None) => {
+                Ok(DataType::Primitive(PrimitiveType::Timestamp))
+            }
+            ArrowDataType::Timestamp(TimeUnit::Microsecond, Some(tz))
+                if tz.eq_ignore_ascii_case("utc") =>
+            {
+                Ok(DataType::Primitive(PrimitiveType::Timestamp))
+            }
+            ArrowDataType::Struct(fields) => {
+                let converted_fields: Result<Vec<StructField>, _> = fields
+                    .iter()
+                    .map(|field| field.as_ref().try_into())
+                    .collect();
+                Ok(DataType::Struct(Box::new(StructType::new(
+                    converted_fields?,
+                ))))
+            }
+            ArrowDataType::List(field) => Ok(DataType::Array(Box::new(ArrayType::new(
+                (*field).data_type().try_into()?,
+                (*field).is_nullable(),
+            )))),
+            ArrowDataType::LargeList(field) => Ok(DataType::Array(Box::new(ArrayType::new(
+                (*field).data_type().try_into()?,
+                (*field).is_nullable(),
+            )))),
+            ArrowDataType::FixedSizeList(field, _) => Ok(DataType::Array(Box::new(
+                ArrayType::new((*field).data_type().try_into()?, (*field).is_nullable()),
+            ))),
+            ArrowDataType::Map(field, _) => {
+                if let ArrowDataType::Struct(struct_fields) = field.data_type() {
+                    let key_type = struct_fields[0].data_type().try_into()?;
+                    let value_type = struct_fields[1].data_type().try_into()?;
+                    let value_type_nullable = struct_fields[1].is_nullable();
+                    Ok(DataType::Map(Box::new(MapType::new(
+                        key_type,
+                        value_type,
+                        value_type_nullable,
+                    ))))
+                } else {
+                    panic!("DataType::Map should contain a struct field child");
+                }
+            }
+            s => Err(ArrowError::SchemaError(format!(
+                "Invalid data type for Delta Lake: {s}"
+            ))),
+        }
+    }
+}
+
+macro_rules! arrow_map {
+    ($fieldname: ident, null) => {
+        ArrowField::new(
+            stringify!($fieldname),
+            ArrowDataType::Map(
+                Arc::new(ArrowField::new(
+                    MAP_ROOT_DEFAULT,
+                    ArrowDataType::Struct(
+                        vec![
+                            ArrowField::new(MAP_KEY_DEFAULT, ArrowDataType::Utf8, false),
+                            ArrowField::new(MAP_VALUE_DEFAULT, ArrowDataType::Utf8, true),
+                        ]
+                        .into(),
+                    ),
+                    false,
+                )),
+                false,
+            ),
+            true,
+        )
+    };
+    ($fieldname: ident, not_null) => {
+        ArrowField::new(
+            stringify!($fieldname),
+            ArrowDataType::Map(
+                Arc::new(ArrowField::new(
+                    MAP_ROOT_DEFAULT,
+                    ArrowDataType::Struct(
+                        vec![
+                            ArrowField::new(MAP_KEY_DEFAULT, ArrowDataType::Utf8, false),
+                            ArrowField::new(MAP_VALUE_DEFAULT, ArrowDataType::Utf8, false),
+                        ]
+                        .into(),
+                    ),
+                    false,
+                )),
+                false,
+            ),
+            false,
+        )
+    };
+}
+
+macro_rules! arrow_field {
+    ($fieldname:ident, $type_qual:ident, null) => {
+        ArrowField::new(stringify!($fieldname), ArrowDataType::$type_qual, true)
+    };
+    ($fieldname:ident, $type_qual:ident, not_null) => {
+        ArrowField::new(stringify!($fieldname), ArrowDataType::$type_qual, false)
+    };
+}
+
+macro_rules! arrow_list {
+    ($fieldname:ident, $element_name:ident, $type_qual:ident, null) => {
+        ArrowField::new(
+            stringify!($fieldname),
+            ArrowDataType::List(Arc::new(ArrowField::new(
+                stringify!($element_name),
+                ArrowDataType::$type_qual,
+                true,
+            ))),
+            true,
+        )
+    };
+    ($fieldname:ident, $element_name:ident, $type_qual:ident, not_null) => {
+        ArrowField::new(
+            stringify!($fieldname),
+            ArrowDataType::List(Arc::new(ArrowField::new(
+                stringify!($element_name),
+                ArrowDataType::$type_qual,
+                true,
+            ))),
+            false,
+        )
+    };
+}
+
+macro_rules! arrow_struct {
+    ($fieldname:ident, [$($inner:tt)+], null) => {
+        ArrowField::new(
+            stringify!($fieldname),
+            ArrowDataType::Struct(
+                arrow_defs! [$($inner)+].into()
+            ),
+            true
+        )
+    };
+    ($fieldname:ident, [$($inner:tt)+], not_null) => {
+        ArrowField::new(
+            stringify!($fieldname),
+            ArrowDataType::Struct(
+                arrow_defs! [$($inner)+].into()
+            ),
+            false
+        )
+    }
+}
+
+macro_rules! arrow_def {
+    ($fieldname:ident $(null)?) => {
+        arrow_map!($fieldname, null)
+    };
+    ($fieldname:ident not_null) => {
+        arrow_map!($fieldname, not_null)
+    };
+    ($fieldname:ident[$inner_name:ident]{$type_qual:ident} $(null)?) => {
+        arrow_list!($fieldname, $inner_name, $type_qual, null)
+    };
+    ($fieldname:ident[$inner_name:ident]{$type_qual:ident} not_null) => {
+        arrow_list!($fieldname, $inner_name, $type_qual, not_null)
+    };
+    ($fieldname:ident:$type_qual:ident $(null)?) => {
+        arrow_field!($fieldname, $type_qual, null)
+    };
+    ($fieldname:ident:$type_qual:ident not_null) => {
+        arrow_field!($fieldname, $type_qual, not_null)
+    };
+    ($fieldname:ident[$($inner:tt)+] $(null)?) => {
+        arrow_struct!($fieldname, [$($inner)+], null)
+    };
+    ($fieldname:ident[$($inner:tt)+] not_null) => {
+        arrow_struct!($fieldname, [$($inner)+], not_null)
+    }
+}
+
+/// A helper macro to create more readable Arrow field definitions, delimited by commas
+///
+/// The argument patterns are as follows:
+///
+/// fieldname (null|not_null)?      -- An arrow field of type map with name "fieldname" consisting of Utf8 key-value pairs, and an
+///                                    optional nullability qualifier (null if not specified).
+///
+/// fieldname:type (null|not_null)? --  An Arrow field consisting of an atomic type. For example,
+///                                     id:Utf8 gets mapped to ArrowField::new("id", ArrowDataType::Utf8, true).
+///                                     where customerCount:Int64 not_null gets mapped to gets mapped to
+///                                     ArrowField::new("customerCount", ArrowDataType::Utf8, true)
+///
+/// fieldname[list_element]{list_element_type} (null|not_null)? --  An Arrow list, with the name of the elements wrapped in square brackets
+///                                                                 and the type of the list elements wrapped in curly brackets. For example,
+///                                                                 customers[name]{Utf8} is an nullable arrow field of type arrow list consisting
+///                                                                 of elements called "name" with type Utf8.
+///
+/// fieldname[element1, element2, element3, ....] (null|not_null)? -- An arrow struct with name "fieldname" consisting of elements adhering to any of the patterns
+///                                                                   documented, including additional structs arbitrarily nested up to the recursion
+///                                                                   limit for Rust macros.
+macro_rules! arrow_defs {
+    () => {
+        vec![] as Vec<ArrowField>
+    };
+    ($($fieldname:ident$(:$type_qual:ident)?$([$($inner:tt)+])?$({$list_type_qual:ident})? $($nullable:ident)?),+) => {
+        vec![
+            $(arrow_def!($fieldname$(:$type_qual)?$([$($inner)+])?$({$list_type_qual})? $($nullable)?)),+
+        ]
+    }
+}
+
+fn max_min_schema_for_fields(dest: &mut Vec<ArrowField>, f: &ArrowField) {
+    match f.data_type() {
+        ArrowDataType::Struct(struct_fields) => {
+            let mut child_dest = Vec::new();
+
+            for f in struct_fields {
+                max_min_schema_for_fields(&mut child_dest, f);
+            }
+
+            dest.push(ArrowField::new(
+                f.name(),
+                ArrowDataType::Struct(child_dest.into()),
+                true,
+            ));
+        }
+        // don't compute min or max for list, map or binary types
+        ArrowDataType::List(_) | ArrowDataType::Map(_, _) | ArrowDataType::Binary => { /* noop */ }
+        _ => {
+            let f = f.clone();
+            dest.push(f);
+        }
+    }
+}
+
+fn null_count_schema_for_fields(dest: &mut Vec<ArrowField>, f: &ArrowField) {
+    match f.data_type() {
+        ArrowDataType::Struct(struct_fields) => {
+            let mut child_dest = Vec::new();
+
+            for f in struct_fields {
+                null_count_schema_for_fields(&mut child_dest, f);
+            }
+
+            dest.push(ArrowField::new(
+                f.name(),
+                ArrowDataType::Struct(child_dest.into()),
+                true,
+            ));
+        }
+        _ => {
+            let f = ArrowField::new(f.name(), ArrowDataType::Int64, true);
+            dest.push(f);
         }
     }
 }
@@ -1015,16 +1306,16 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn test_read_schemas() {
-    //     let file = std::fs::File::open("./tests/serde/schema.json").unwrap();
-    //     let schema: Result<StructType, _> = serde_json::from_reader(file);
-    //     assert!(schema.is_ok());
+    #[test]
+    fn test_read_schemas() {
+        let file = std::fs::File::open("./tests/serde/schema.json").unwrap();
+        let schema: Result<StructType, _> = serde_json::from_reader(file);
+        assert!(schema.is_ok());
 
-    //     let file = std::fs::File::open("./tests/serde/checkpoint_schema.json").unwrap();
-    //     let schema: Result<StructType, _> = serde_json::from_reader(file);
-    //     assert!(schema.is_ok())
-    // }
+        let file = std::fs::File::open("./tests/serde/checkpoint_schema.json").unwrap();
+        let schema: Result<StructType, _> = serde_json::from_reader(file);
+        assert!(schema.is_ok())
+    }
 
     #[test]
     fn test_get_invariants() {

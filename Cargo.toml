@@ -11,7 +11,7 @@ arrow-schema = "50.0.0"
 async-trait = "0.1.77"
 bytes = "1.5.0"
 chrono = "0.4.31"
-datafusion = "35.0.0"
+datafusion = { version = "35.0.0", features = ["serde"] }
 futures = "0.3.30"
 object_store = { version = "0.9.0", features = ["http"] }
 parquet = { version = "50.0.0", features = ["async"] }
@@ -21,6 +21,7 @@ reqwest-retry = "0.3.0"
 reqwest-tracing = "0.4.7"
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
+thiserror = "1.0.56"
 tokio = { version = "1.35.1", features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = [
@@ -28,6 +29,7 @@ tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
 ] }
 tracing-test = { version = "0.2.4" }
+url = "2.5.0"
 
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["full"] }

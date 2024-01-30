@@ -5,7 +5,7 @@ use bytes::Bytes;
 
 use datafusion::datasource::physical_plan::{FileMeta, ParquetFileReaderFactory};
 use datafusion::parquet::arrow::async_reader::AsyncFileReader;
-use datafusion::parquet::errors::ParquetError;
+use datafusion::parquet::errors::{ParquetError, Result};
 use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -22,7 +22,7 @@ impl SignedParquetFileReader {
         Self { url, size, client }
     }
 
-    async fn get_range(&self, range: Range<usize>) -> datafusion::parquet::errors::Result<Bytes> {
+    async fn get_range(&self, range: Range<usize>) -> Result<Bytes> {
         let url = Url::parse(&self.url).unwrap();
 
         let first = match range.start_bound() {
@@ -45,11 +45,7 @@ impl SignedParquetFileReader {
             .unwrap()
             .bytes()
             .await
-            .map_err(|e| {
-                datafusion::parquet::errors::ParquetError::General(format!(
-                    "[PARQUET_FILE_READER_ERROR] source: {e}"
-                ))
-            })
+            .map_err(|e| ParquetError::General(format!("[PARQUET_FILE_READER_ERROR] source: {e}")))
     }
 }
 
