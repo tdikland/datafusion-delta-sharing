@@ -13,8 +13,8 @@ use crate::{
     securable::{Schema, Share, Table},
 };
 use {
+    crate::profile::DeltaSharingProfile,
     action::{Metadata, Protocol},
-    profile::DeltaSharingProfile,
     response::{
         ErrorResponse, ListSchemasPaginated, ListSharesPaginated, ListTablesPaginated,
         ParquetResponse,
@@ -23,7 +23,7 @@ use {
 
 pub mod action;
 pub mod pagination;
-pub mod profile;
+// pub mod profile;
 pub mod response;
 
 const QUERY_PARAM_VERSION_TIMESTAMP: &'static str = "startingTimestamp";

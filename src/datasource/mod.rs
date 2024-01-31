@@ -41,7 +41,7 @@ use datafusion::{
     },
     execution::{context::SessionState, object_store::ObjectStoreUrl},
     logical_expr::{Expr, TableType},
-    physical_plan::{empty::EmptyExec, ExecutionPlan},
+    physical_plan::ExecutionPlan,
     scalar::ScalarValue,
 };
 use reqwest::Url;
@@ -50,10 +50,10 @@ use tracing::info;
 use crate::{
     client::{
         action::{File, Metadata, Protocol},
-        profile::DeltaSharingProfile,
         DeltaSharingClient,
     },
     error::DeltaSharingError,
+    profile::DeltaSharingProfile,
     securable::Table,
 };
 

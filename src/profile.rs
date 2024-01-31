@@ -2,6 +2,7 @@ use std::{fs::File, path::Path};
 
 use reqwest::RequestBuilder;
 use serde::Deserialize;
+use url::Url;
 
 use crate::error::DeltaSharingError;
 
@@ -23,6 +24,22 @@ impl DeltaSharingProfile {
 
     pub fn new_bearer(endpoint: String, token: String) -> Self {
         Self::Bearer(BearerTokenProfile { endpoint, token })
+    }
+
+    pub fn url(&self) -> Url {
+        Url::parse(self.endpoint()).unwrap()
+    }
+
+    pub fn endpoint(&self) -> &str {
+        match self {
+            DeltaSharingProfile::Bearer(b) => b.endpoint.as_ref(),
+        }
+    }
+
+    pub fn token(&self) -> &str {
+        match self {
+            DeltaSharingProfile::Bearer(b) => b.token.as_ref(),
+        }
     }
 }
 
