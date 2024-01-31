@@ -75,7 +75,10 @@ pub struct DeltaSharingTableBuilder {
 
 impl DeltaSharingTableBuilder {
     pub fn new(profile: DeltaSharingProfile, table: Table) -> Self {
-        Self::default()
+        Self {
+            profile: Some(profile),
+            table: Some(table),
+        }
     }
 
     pub fn with_profile(mut self, profile: DeltaSharingProfile) -> Self {
@@ -113,6 +116,10 @@ pub struct DeltaSharingTable {
 }
 
 impl DeltaSharingTable {
+    pub async fn try_from_str(_s: &str) -> Result<Self, DeltaSharingError> {
+        todo!()
+    }
+
     fn arrow_schema(&self) -> SchemaRef {
         let s: StructType = serde_json::from_str(&self.metadata.schema_string()).unwrap();
         let fields = s
@@ -279,13 +286,16 @@ fn deserialize_partition_values(
     partition_values: HashMap<String, Option<String>>,
 ) -> datafusion::error::Result<Vec<ScalarValue>> {
     for pcol in partition_columns {
-        let field = partition_fields.field_with_name(pcol).map_err(|_| ())?;
+        let field = partition_fields
+            .field_with_name(pcol)
+            .map_err(|_| ())
+            .unwrap();
         let partition_value: Option<Option<&str>> =
             partition_values.get(field.name()).map(|v| v.as_deref());
 
         let scalar = match partition_value {
             None | Some(None) | Some(Some("")) => {
-                ScalarValue::new_primitive(None, field.data_type())?
+                ScalarValue::try_from_string("".to_string(), field.data_type())?
             }
             Some(Some(str_value)) => match &field.data_type() {
                 arrow_schema::DataType::Boolean
@@ -298,53 +308,54 @@ fn deserialize_partition_values(
                 | arrow_schema::DataType::Utf8
                 | arrow_schema::DataType::Decimal128(_, _)
                 | arrow_schema::DataType::Decimal256(_, _) => {
-                    ScalarValue::new_primitive(Some(str_value), field.data_type())?
+                    ScalarValue::try_from_string(str_value.to_string(), field.data_type())?
                 }
                 arrow_schema::DataType::Timestamp(TimeUnit::Microsecond, None) => {
                     todo!()
                 }
+                _ => todo!(),
             },
         };
 
-        let scalar = match field.data_type() {
-            arrow_schema::DataType::Boolean => {
-                ScalarValue::try_from_string(a.to_owned(), field.data_type())
-            }
-            arrow_schema::DataType::Int8 => todo!(),
-            arrow_schema::DataType::Int16 => todo!(),
-            arrow_schema::DataType::Int32 => todo!(),
-            arrow_schema::DataType::Int64 => todo!(),
-            // arrow_schema::DataType::UInt8 => todo!(),
-            // arrow_schema::DataType::UInt16 => todo!(),
-            // arrow_schema::DataType::UInt32 => todo!(),
-            // arrow_schema::DataType::UInt64 => todo!(),
-            // arrow_schema::DataType::Float16 => todo!(),
-            arrow_schema::DataType::Float32 => todo!(),
-            arrow_schema::DataType::Float64 => todo!(),
-            arrow_schema::DataType::Timestamp(TimeUnit::Microsecond, None) => todo!(),
-            arrow_schema::DataType::Date32 => todo!(),
-            // arrow_schema::DataType::Date64 => todo!(),
-            // arrow_schema::DataType::Time32(_) => todo!(),
-            // arrow_schema::DataType::Time64(_) => todo!(),
-            // arrow_schema::DataType::Duration(_) => todo!(),
-            // arrow_schema::DataType::Interval(_) => todo!(),
-            // arrow_schema::DataType::Binary => todo!(),
-            // arrow_schema::DataType::FixedSizeBinary(_) => todo!(),
-            // arrow_schema::DataType::LargeBinary => todo!(),
-            arrow_schema::DataType::Utf8 => todo!(),
-            // arrow_schema::DataType::LargeUtf8 => todo!(),
-            // arrow_schema::DataType::List(_) => todo!(),
-            // arrow_schema::DataType::FixedSizeList(_, _) => todo!(),
-            // arrow_schema::DataType::LargeList(_) => todo!(),
-            // arrow_schema::DataType::Struct(_) => todo!(),
-            // arrow_schema::DataType::Union(_, _) => todo!(),
-            // arrow_schema::DataType::Dictionary(_, _) => todo!(),
-            arrow_schema::DataType::Decimal128(_, _) => todo!(),
-            arrow_schema::DataType::Decimal256(_, _) => todo!(),
-            // arrow_schema::DataType::Map(_, _) => todo!(),
-            // arrow_schema::DataType::RunEndEncoded(_, _) => todo!(),
-            _ => return Err(datafusion::error::DataFusionError::Internal(String::new())),
-        };
+        // let scalar = match field.data_type() {
+        //     arrow_schema::DataType::Boolean => {
+        //         ScalarValue::try_from_string(a.to_owned(), field.data_type())
+        //     }
+        //     arrow_schema::DataType::Int8 => todo!(),
+        //     arrow_schema::DataType::Int16 => todo!(),
+        //     arrow_schema::DataType::Int32 => todo!(),
+        //     arrow_schema::DataType::Int64 => todo!(),
+        //     // arrow_schema::DataType::UInt8 => todo!(),
+        //     // arrow_schema::DataType::UInt16 => todo!(),
+        //     // arrow_schema::DataType::UInt32 => todo!(),
+        //     // arrow_schema::DataType::UInt64 => todo!(),
+        //     // arrow_schema::DataType::Float16 => todo!(),
+        //     arrow_schema::DataType::Float32 => todo!(),
+        //     arrow_schema::DataType::Float64 => todo!(),
+        //     arrow_schema::DataType::Timestamp(TimeUnit::Microsecond, None) => todo!(),
+        //     arrow_schema::DataType::Date32 => todo!(),
+        //     // arrow_schema::DataType::Date64 => todo!(),
+        //     // arrow_schema::DataType::Time32(_) => todo!(),
+        //     // arrow_schema::DataType::Time64(_) => todo!(),
+        //     // arrow_schema::DataType::Duration(_) => todo!(),
+        //     // arrow_schema::DataType::Interval(_) => todo!(),
+        //     // arrow_schema::DataType::Binary => todo!(),
+        //     // arrow_schema::DataType::FixedSizeBinary(_) => todo!(),
+        //     // arrow_schema::DataType::LargeBinary => todo!(),
+        //     arrow_schema::DataType::Utf8 => todo!(),
+        //     // arrow_schema::DataType::LargeUtf8 => todo!(),
+        //     // arrow_schema::DataType::List(_) => todo!(),
+        //     // arrow_schema::DataType::FixedSizeList(_, _) => todo!(),
+        //     // arrow_schema::DataType::LargeList(_) => todo!(),
+        //     // arrow_schema::DataType::Struct(_) => todo!(),
+        //     // arrow_schema::DataType::Union(_, _) => todo!(),
+        //     // arrow_schema::DataType::Dictionary(_, _) => todo!(),
+        //     arrow_schema::DataType::Decimal128(_, _) => todo!(),
+        //     arrow_schema::DataType::Decimal256(_, _) => todo!(),
+        //     // arrow_schema::DataType::Map(_, _) => todo!(),
+        //     // arrow_schema::DataType::RunEndEncoded(_, _) => todo!(),
+        //     _ => return Err(datafusion::error::DataFusionError::Internal(String::new())),
+        // };
     }
 
     todo!()

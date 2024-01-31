@@ -253,7 +253,8 @@ impl DeltaSharingClient {
                 .and_then(Result::ok)
                 .and_then(ParquetResponse::to_protocol)
                 .ok_or(DeltaSharingError::parse_response("parsing protocol failed"))?;
-            let metadata = dbg!(lines.next())
+            let metadata = lines
+                .next()
                 .and_then(Result::ok)
                 .and_then(ParquetResponse::to_metadata)
                 .ok_or(DeltaSharingError::parse_response("parsing metadata failed"))?;

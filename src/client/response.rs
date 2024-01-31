@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::securable::{Schema, Share, Table};
 
-use super::action::{File, Metadata, Protocol};
+use super::action::{Add, Cdf, File, Metadata, Protocol, Remove};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,6 +115,9 @@ pub enum ParquetResponse {
     Metadata(Metadata),
     #[serde(rename = "file")]
     File(File),
+    Add(Add),
+    Cdc(Cdf),
+    Remove(Remove),
 }
 
 impl ParquetResponse {
