@@ -13,7 +13,7 @@ use crate::{
     securable::{Schema, Share, Table},
 };
 use {
-    crate::profile::DeltaSharingProfile,
+    crate::profile::Profile,
     action::{Metadata, Protocol},
     response::{
         ErrorResponse, ListSchemasPaginated, ListSharesPaginated, ListTablesPaginated,
@@ -30,12 +30,12 @@ const QUERY_PARAM_VERSION_TIMESTAMP: &'static str = "startingTimestamp";
 #[derive(Debug, Clone)]
 pub struct DeltaSharingClient {
     client: Client,
-    profile: DeltaSharingProfile,
+    profile: Profile,
     endpoint: Url,
 }
 
 impl DeltaSharingClient {
-    pub fn new(profile: DeltaSharingProfile) -> Self {
+    pub fn new(profile: Profile) -> Self {
         Self {
             client: Client::new(),
             profile: profile.clone(),
@@ -43,7 +43,7 @@ impl DeltaSharingClient {
         }
     }
 
-    pub fn profile(&self) -> &DeltaSharingProfile {
+    pub fn profile(&self) -> &Profile {
         &self.profile
     }
 

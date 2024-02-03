@@ -3,6 +3,8 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+use datafusion::error::DataFusionError;
+
 #[derive(Debug)]
 pub struct DeltaSharingError {
     kind: DeltaSharingErrorKind,
@@ -87,5 +89,11 @@ impl From<reqwest::Error> for DeltaSharingError {
             return Self::parse_response(e.to_string());
         }
         Self::request(e.to_string())
+    }
+}
+
+impl From<DeltaSharingError> for DataFusionError {
+    fn from(e: DeltaSharingError) -> Self {
+        DataFusionError::Execution(e.to_string())
     }
 }

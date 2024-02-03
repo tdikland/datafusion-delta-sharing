@@ -34,15 +34,14 @@
 
 #![allow(missing_docs)]
 
-mod catalog;
+pub mod catalog;
 mod client;
 mod datasource;
 pub mod error;
 mod profile;
 mod securable;
 
-pub use catalog::{DeltaSharingCatalog, DeltaSharingCatalogList};
 pub use datasource::{DeltaSharingTable, DeltaSharingTableBuilder};
 pub use error::{DeltaSharingError, DeltaSharingErrorKind};
-pub use profile::DeltaSharingProfile;
+pub use profile::Profile;
 pub use securable::{Schema, Share, Table};

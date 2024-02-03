@@ -46,7 +46,7 @@ use crate::{
         DeltaSharingClient,
     },
     error::DeltaSharingError,
-    profile::DeltaSharingProfile,
+    profile::Profile,
     securable::Table,
 };
 
@@ -58,19 +58,19 @@ mod schema;
 
 #[derive(Debug, Default)]
 pub struct DeltaSharingTableBuilder {
-    profile: Option<DeltaSharingProfile>,
+    profile: Option<Profile>,
     table: Option<Table>,
 }
 
 impl DeltaSharingTableBuilder {
-    pub fn new(profile: DeltaSharingProfile, table: Table) -> Self {
+    pub fn new(profile: Profile, table: Table) -> Self {
         Self {
             profile: Some(profile),
             table: Some(table),
         }
     }
 
-    pub fn with_profile(mut self, profile: DeltaSharingProfile) -> Self {
+    pub fn with_profile(mut self, profile: Profile) -> Self {
         self.profile = Some(profile);
         self
     }
@@ -107,7 +107,7 @@ pub struct DeltaSharingTable {
 impl DeltaSharingTable {
     pub async fn try_from_str(s: &str) -> Result<Self, DeltaSharingError> {
         let (profile_path, table_fqn) = s.split_once('#').ok_or(DeltaSharingError::other("The connection string should be formatted as `<path/to/profile>#<share_name>.<schema_name>.<table_name>"))?;
-        let profile = DeltaSharingProfile::from_path(profile_path)?;
+        let profile = Profile::from_path(profile_path)?;
         let table = table_fqn.parse::<Table>()?;
 
         DeltaSharingTableBuilder::new(profile, table).build().await
