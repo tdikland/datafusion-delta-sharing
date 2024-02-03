@@ -30,13 +30,14 @@
 
 use std::{any::Any, sync::Arc};
 
+use arrow::compute::kernels::filter;
 use datafusion::{
     arrow::datatypes::{Field, Schema, SchemaRef},
     common::{stats::Statistics, Constraints},
     datasource::TableProvider,
     error::Result as DataFusionResult,
     execution::context::SessionState,
-    logical_expr::{Expr, LogicalPlan, TableProviderFilterPushDown, TableType},
+    logical_expr::{utils::conjunction, Expr, LogicalPlan, TableProviderFilterPushDown, TableType},
     physical_plan::ExecutionPlan,
 };
 
@@ -52,6 +53,7 @@ use crate::{
 
 use self::{scan::DeltaSharingScanBuilder, schema::StructType};
 
+mod expr;
 mod reader;
 mod scan;
 mod schema;
@@ -143,7 +145,7 @@ impl DeltaSharingTable {
         &self.table
     }
 
-    async fn list_files_for_scan(&self, _filters: &[Expr], limit: Option<usize>) -> Vec<File> {
+    async fn list_files_for_scan(&self, _filters: String, limit: Option<usize>) -> Vec<File> {
         let mapped_limit = limit.map(|l| l as u32);
         self.client
             .get_table_data(&self.table, None, mapped_limit)
@@ -194,7 +196,10 @@ impl TableProvider for DeltaSharingTable {
         limit: Option<usize>,
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
         // Fetch files satisfying filters & limit (best effort)
-        let files = self.list_files_for_scan(filters, limit).await;
+        let combined_filters = conjunction(filters.iter().cloned()).unwrap();
+        let filters = expr::Op::from_expr(&combined_filters, self.arrow_schema())?;
+
+        let files = self.list_files_for_scan(filters.to_string(), limit).await;
         let scan = DeltaSharingScanBuilder::new(self.schema(), self.partition_columns())
             .with_projection(projection.cloned())
             .with_files(files)
@@ -208,7 +213,12 @@ impl TableProvider for DeltaSharingTable {
         &self,
         _filter: &Expr,
     ) -> DataFusionResult<TableProviderFilterPushDown> {
-        Ok(TableProviderFilterPushDown::Inexact)
+        let op = expr::Op::from_expr(_filter, self.arrow_schema());
+        if op.is_ok() {
+            return Ok(TableProviderFilterPushDown::Inexact);
+        } else {
+            return Ok(TableProviderFilterPushDown::Unsupported);
+        }
     }
 
     fn statistics(&self) -> Option<Statistics> {

@@ -39,9 +39,8 @@ mod client;
 mod datasource;
 pub mod error;
 mod profile;
-mod securable;
+pub mod securable;
 
 pub use datasource::{DeltaSharingTable, DeltaSharingTableBuilder};
 pub use error::{DeltaSharingError, DeltaSharingErrorKind};
 pub use profile::Profile;
-pub use securable::{Schema, Share, Table};
