@@ -38,49 +38,6 @@ impl Protocol {
     }
 }
 
-/// Configure a protocol action.
-pub struct ProtocolBuilder {
-    min_reader_version: u32,
-}
-
-impl ProtocolBuilder {
-    /// Initialize a new ProtocolBuilder.
-    pub fn new() -> Self {
-        Self {
-            min_reader_version: Protocol::CURRENT,
-        }
-    }
-
-    /// Set the minimum version of the protocol that the client must support.
-    ///
-    /// # Example
-    /// ```
-    /// use datafusion_delta_sharing::client::action::ProtocolBuilder;
-    ///
-    /// let protocol = ProtocolBuilder::new()
-    ///    .min_reader_version(1)
-    ///    .build();
-    ///
-    /// assert_eq!(protocol.min_reader_version(), 1);
-    /// ```
-    pub fn min_reader_version(mut self, min_reader_version: u32) -> Self {
-        self.min_reader_version = min_reader_version;
-        self
-    }
-
-    /// Build the configured protocol action.
-    pub fn build(self) -> Protocol {
-        // TODO: proper error type
-        // if self.min_reader_version > Protocol::CURRENT {
-        //     return Err(());
-        // };
-
-        Protocol {
-            min_reader_version: self.min_reader_version,
-        }
-    }
-}
-
 /// Representation of the table format.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -181,102 +138,6 @@ impl Metadata {
     }
 }
 
-/// Build a new Metadata action.
-pub struct MetadataBuilder {
-    id: String,
-    name: Option<String>,
-    description: Option<String>,
-    format: Format,
-    schema_string: String,
-    partition_columns: Vec<String>,
-    configuration: HashMap<String, String>,
-    version: Option<String>,
-    size: Option<u64>,
-    num_files: Option<u64>,
-}
-
-impl MetadataBuilder {
-    /// Initialize a new MetadataBuilder.
-    pub fn new<S: Into<String>>(id: S, schema_string: S) -> Self {
-        Self {
-            id: id.into(),
-            name: None,
-            description: None,
-            format: Format::default(),
-            schema_string: schema_string.into(),
-            partition_columns: vec![],
-            configuration: HashMap::new(),
-            version: None,
-            size: None,
-            num_files: None,
-        }
-    }
-
-    /// Set the name of the table.
-    pub fn name(mut self, name: String) -> Self {
-        self.name = Some(name);
-        self
-    }
-
-    /// Set the description of the table.
-    pub fn description(mut self, description: String) -> Self {
-        self.description = Some(description);
-        self
-    }
-
-    /// Set the format of the table.
-    pub fn format(mut self, format: Format) -> Self {
-        self.format = format;
-        self
-    }
-
-    /// Set the partition columns of the table.
-    pub fn partition_columns(mut self, partition_columns: Vec<String>) -> Self {
-        self.partition_columns = partition_columns;
-        self
-    }
-
-    /// Set the configuration of the table.
-    pub fn configuration(mut self, configuration: HashMap<String, String>) -> Self {
-        self.configuration = configuration;
-        self
-    }
-
-    /// Set the version of the table.
-    pub fn version(mut self, version: String) -> Self {
-        self.version = Some(version);
-        self
-    }
-
-    /// Set the size of the table.
-    pub fn size(mut self, size: u64) -> Self {
-        self.size = Some(size);
-        self
-    }
-
-    /// Set the number of files in the table.
-    pub fn num_files(mut self, num_files: u64) -> Self {
-        self.num_files = Some(num_files);
-        self
-    }
-
-    /// Build the Metadata.
-    pub fn build(self) -> Metadata {
-        Metadata {
-            id: self.id,
-            name: self.name,
-            description: self.description,
-            format: self.format,
-            schema_string: self.schema_string,
-            partition_columns: self.partition_columns,
-            configuration: self.configuration,
-            version: self.version,
-            size: self.size,
-            num_files: self.num_files,
-        }
-    }
-}
-
 /// Representation of data that is part of a table.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -312,8 +173,11 @@ impl File {
     }
 
     /// A map from partition column to value for this file in the table.
-    pub fn partition_values(&self) -> &HashMap<String, Option<String>> {
-        &self.partition_values
+    pub fn partition_values(&self) -> HashMap<String, String> {
+        self.partition_values
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone().unwrap_or_default()))
+            .collect()
     }
 
     /// The size of this file in bytes.
@@ -344,96 +208,6 @@ impl File {
     }
 }
 
-/// Build a new File action
-pub struct FileBuilder {
-    url: String,
-    id: String,
-    partition_values: HashMap<String, Option<String>>,
-    size: Option<u64>,
-    stats: Option<String>,
-    version: Option<u64>,
-    timestamp: Option<u64>,
-    expiration_timestamp: Option<u64>,
-}
-
-impl FileBuilder {
-    /// Initialize a new FileBuilder.
-    pub fn new(url: impl Into<String>, id: impl Into<String>) -> Self {
-        Self {
-            url: url.into(),
-            id: id.into(),
-            partition_values: HashMap::new(),
-            size: None,
-            stats: None,
-            version: None,
-            timestamp: None,
-            expiration_timestamp: None,
-        }
-    }
-
-    /// Set the partition values for this file.
-    pub fn partition_values(mut self, partition_values: HashMap<String, Option<String>>) -> Self {
-        self.partition_values = partition_values;
-        self
-    }
-
-    /// Add a partition value for this file.
-    pub fn add_partition_value(
-        mut self,
-        partition: impl Into<String>,
-        value: Option<impl Into<String>>,
-    ) -> Self {
-        self.partition_values
-            .insert(partition.into(), value.map(Into::into));
-        self
-    }
-
-    /// Set the size of this file in bytes.
-    pub fn size(mut self, size: u64) -> Self {
-        self.size = Some(size);
-        self
-    }
-
-    /// Set the statistics of this file.
-    pub fn stats(mut self, stats: impl Into<String>) -> Self {
-        self.stats = Some(stats.into());
-        self
-    }
-
-    /// Set the version of this file.
-    pub fn version(mut self, version: u64) -> Self {
-        self.version = Some(version);
-        self
-    }
-
-    /// Set the timestamp of this file.
-    pub fn timestamp(mut self, ts: u64) -> Self {
-        self.timestamp = Some(ts.into());
-        self
-    }
-
-    /// Set the expiration timestamp for the url belonging to this file.
-    /// This is only relevant for urls that have been presigned.
-    pub fn expiration_timestamp(mut self, ts: u64) -> Self {
-        self.expiration_timestamp = Some(ts.into());
-        self
-    }
-
-    /// Build a File from the provided configuration.
-    pub fn build(self) -> File {
-        File {
-            url: self.url,
-            id: self.id,
-            partition_values: self.partition_values,
-            size: self.size.unwrap_or(0),
-            stats: self.stats,
-            version: self.version,
-            timestamp: self.timestamp,
-            expiration_timestamp: self.expiration_timestamp,
-        }
-    }
-}
-
 /// Representation of data that was added to a table.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -456,68 +230,6 @@ pub struct Add {
     /// The unix timestamp in milliseconds corresponding to the expiration of
     /// the url associated with this file.
     pub expiration_timestamp: Option<String>,
-}
-
-/// Initialize a new AddBuilder.
-pub struct AddBuilder {
-    url: String,
-    id: String,
-    partition_values: HashMap<String, Option<String>>,
-    size: Option<u64>,
-    stats: Option<String>,
-    version: Option<u64>,
-    timestamp: Option<String>,
-    expiration_timestamp: Option<String>,
-}
-
-impl AddBuilder {
-    /// Initialize a new AddBuilder.
-    pub fn new(url: impl Into<String>, id: impl Into<String>) -> Self {
-        Self {
-            url: url.into(),
-            id: id.into(),
-            partition_values: HashMap::new(),
-            size: None,
-            stats: None,
-            version: None,
-            timestamp: None,
-            expiration_timestamp: None,
-        }
-    }
-
-    pub fn partition_values(mut self, partition_values: HashMap<String, Option<String>>) -> Self {
-        self.partition_values = partition_values;
-        self
-    }
-
-    pub fn add_partition_value<S: Into<String>>(mut self, partition: S, value: Option<S>) -> Self {
-        self.partition_values
-            .insert(partition.into(), value.map(Into::into));
-        self
-    }
-
-    pub fn stats(mut self, stats: impl Into<String>) -> Self {
-        self.stats = Some(stats.into());
-        self
-    }
-
-    pub fn expiration_timestamp(mut self, ts: impl Into<String>) -> Self {
-        self.expiration_timestamp = Some(ts.into());
-        self
-    }
-
-    pub fn build(self) -> Add {
-        Add {
-            url: self.url,
-            id: self.id,
-            partition_values: self.partition_values,
-            size: self.size.unwrap_or(0),
-            stats: self.stats,
-            version: self.version.unwrap_or(0),
-            timestamp: self.timestamp.unwrap_or("0".to_owned()),
-            expiration_timestamp: self.expiration_timestamp,
-        }
-    }
 }
 
 /// Representation of a data that has changed in the table.
@@ -544,66 +256,6 @@ pub struct Cdf {
     pub expiration_timestamp: Option<String>,
 }
 
-pub struct CdfBuilder {
-    url: String,
-    id: String,
-    partition_values: HashMap<String, Option<String>>,
-    size: u64,
-    stats: Option<String>,
-    version: u64,
-    timestamp: String,
-    expiration_timestamp: Option<String>,
-}
-
-impl CdfBuilder {
-    pub fn new<S: Into<String>>(url: S, id: S, size: u64, version: u64, timestamp: S) -> Self {
-        Self {
-            url: url.into(),
-            id: id.into(),
-            partition_values: HashMap::new(),
-            size,
-            stats: None,
-            version,
-            timestamp: timestamp.into(),
-            expiration_timestamp: None,
-        }
-    }
-
-    pub fn partition_values(mut self, partition_values: HashMap<String, Option<String>>) -> Self {
-        self.partition_values = partition_values;
-        self
-    }
-
-    pub fn add_partition_value<S: Into<String>>(mut self, partition: S, value: Option<S>) -> Self {
-        self.partition_values
-            .insert(partition.into(), value.map(Into::into));
-        self
-    }
-
-    pub fn stats(mut self, stats: impl Into<String>) -> Self {
-        self.stats = Some(stats.into());
-        self
-    }
-
-    pub fn expiration_timestamp(mut self, ts: impl Into<String>) -> Self {
-        self.expiration_timestamp = Some(ts.into());
-        self
-    }
-
-    pub fn build(self) -> Cdf {
-        Cdf {
-            url: self.url,
-            id: self.id,
-            partition_values: self.partition_values,
-            size: self.size,
-            stats: self.stats,
-            version: self.version,
-            timestamp: self.timestamp,
-            expiration_timestamp: self.expiration_timestamp,
-        }
-    }
-}
-
 /// Representation of a data that has been removed from the table.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -626,65 +278,4 @@ pub struct Remove {
     /// The unix timestamp in milliseconds corresponding to the expiration of
     /// the url associated with this file.
     pub expiration_timestamp: Option<String>,
-}
-
-/// Build a remove action
-pub struct RemoveBuilder {
-    url: String,
-    id: String,
-    partition_values: HashMap<String, Option<String>>,
-    size: u64,
-    stats: Option<String>,
-    version: Option<u64>,
-    timestamp: Option<String>,
-    expiration_timestamp: Option<String>,
-}
-
-impl RemoveBuilder {
-    pub fn new<S: Into<String>>(url: S, id: S, size: u64) -> Self {
-        Self {
-            url: url.into(),
-            id: id.into(),
-            partition_values: HashMap::new(),
-            size,
-            stats: None,
-            version: None,
-            timestamp: None,
-            expiration_timestamp: None,
-        }
-    }
-
-    pub fn partition_values(mut self, partition_values: HashMap<String, Option<String>>) -> Self {
-        self.partition_values = partition_values;
-        self
-    }
-
-    pub fn add_partition_value<S: Into<String>>(mut self, partition: S, value: Option<S>) -> Self {
-        self.partition_values
-            .insert(partition.into(), value.map(Into::into));
-        self
-    }
-
-    pub fn stats(mut self, stats: impl Into<String>) -> Self {
-        self.stats = Some(stats.into());
-        self
-    }
-
-    pub fn expiration_timestamp(mut self, ts: impl Into<String>) -> Self {
-        self.expiration_timestamp = Some(ts.into());
-        self
-    }
-
-    pub fn build(self) -> Remove {
-        Remove {
-            url: self.url,
-            id: self.id,
-            partition_values: self.partition_values,
-            size: self.size,
-            stats: self.stats,
-            version: self.version.unwrap_or(0),
-            timestamp: self.timestamp.unwrap_or("0".to_string()),
-            expiration_timestamp: self.expiration_timestamp,
-        }
-    }
 }

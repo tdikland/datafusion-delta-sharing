@@ -96,10 +96,10 @@ impl SignedParquetFileReaderFactory {
 impl ParquetFileReaderFactory for SignedParquetFileReaderFactory {
     fn create_reader(
         &self,
-        partition_index: usize,
+        _partition_index: usize,
         file_meta: FileMeta,
-        metadata_size_hint: Option<usize>,
-        metrics: &ExecutionPlanMetricsSet,
+        _metadata_size_hint: Option<usize>,
+        _metrics: &ExecutionPlanMetricsSet,
     ) -> datafusion::error::Result<Box<dyn AsyncFileReader + Send>> {
         let client = self.client.clone();
         let url = file_meta.extensions.unwrap().downcast::<String>().unwrap();

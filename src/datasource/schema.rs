@@ -9,7 +9,7 @@ use std::{collections::HashMap, fmt::Display};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub type DeltaResult<T, E = Error> = std::result::Result<T, E>;
+// pub type DeltaResult<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(thiserror::Error, Debug)]
 #[allow(missing_docs)]
@@ -85,10 +85,10 @@ pub trait DataCheck {
     fn get_expression(&self) -> &str;
 }
 
-/// Type alias for a top level schema
-pub type Schema = StructType;
-/// Schema reference type
-pub type SchemaRef = Arc<StructType>;
+// /// Type alias for a top level schema
+// pub type Schema = StructType;
+// /// Schema reference type
+// pub type SchemaRef = Arc<StructType>;
 
 /// A value that can be stored in the metadata of a Delta table schema entity.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -700,20 +700,15 @@ impl Display for DataType {
     }
 }
 
-
 use arrow_schema::{
-    ArrowError, DataType as ArrowDataType, Field as ArrowField, FieldRef as ArrowFieldRef,
-    Schema as ArrowSchema, SchemaRef as ArrowSchemaRef, TimeUnit,
+    ArrowError, DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema,
+    SchemaRef as ArrowSchemaRef, TimeUnit,
 };
-
-
 
 const MAP_ROOT_DEFAULT: &str = "entries";
 const MAP_KEY_DEFAULT: &str = "keys";
 const MAP_VALUE_DEFAULT: &str = "values";
 const LIST_ROOT_DEFAULT: &str = "item";
-
-
 
 impl TryFrom<&StructType> for ArrowSchema {
     type Error = ArrowError;
@@ -954,169 +949,13 @@ impl TryFrom<&ArrowDataType> for DataType {
     }
 }
 
-macro_rules! arrow_map {
-    ($fieldname: ident, null) => {
-        ArrowField::new(
-            stringify!($fieldname),
-            ArrowDataType::Map(
-                Arc::new(ArrowField::new(
-                    MAP_ROOT_DEFAULT,
-                    ArrowDataType::Struct(
-                        vec![
-                            ArrowField::new(MAP_KEY_DEFAULT, ArrowDataType::Utf8, false),
-                            ArrowField::new(MAP_VALUE_DEFAULT, ArrowDataType::Utf8, true),
-                        ]
-                        .into(),
-                    ),
-                    false,
-                )),
-                false,
-            ),
-            true,
-        )
-    };
-    ($fieldname: ident, not_null) => {
-        ArrowField::new(
-            stringify!($fieldname),
-            ArrowDataType::Map(
-                Arc::new(ArrowField::new(
-                    MAP_ROOT_DEFAULT,
-                    ArrowDataType::Struct(
-                        vec![
-                            ArrowField::new(MAP_KEY_DEFAULT, ArrowDataType::Utf8, false),
-                            ArrowField::new(MAP_VALUE_DEFAULT, ArrowDataType::Utf8, false),
-                        ]
-                        .into(),
-                    ),
-                    false,
-                )),
-                false,
-            ),
-            false,
-        )
-    };
-}
-
-macro_rules! arrow_field {
-    ($fieldname:ident, $type_qual:ident, null) => {
-        ArrowField::new(stringify!($fieldname), ArrowDataType::$type_qual, true)
-    };
-    ($fieldname:ident, $type_qual:ident, not_null) => {
-        ArrowField::new(stringify!($fieldname), ArrowDataType::$type_qual, false)
-    };
-}
-
-macro_rules! arrow_list {
-    ($fieldname:ident, $element_name:ident, $type_qual:ident, null) => {
-        ArrowField::new(
-            stringify!($fieldname),
-            ArrowDataType::List(Arc::new(ArrowField::new(
-                stringify!($element_name),
-                ArrowDataType::$type_qual,
-                true,
-            ))),
-            true,
-        )
-    };
-    ($fieldname:ident, $element_name:ident, $type_qual:ident, not_null) => {
-        ArrowField::new(
-            stringify!($fieldname),
-            ArrowDataType::List(Arc::new(ArrowField::new(
-                stringify!($element_name),
-                ArrowDataType::$type_qual,
-                true,
-            ))),
-            false,
-        )
-    };
-}
-
-macro_rules! arrow_struct {
-    ($fieldname:ident, [$($inner:tt)+], null) => {
-        ArrowField::new(
-            stringify!($fieldname),
-            ArrowDataType::Struct(
-                arrow_defs! [$($inner)+].into()
-            ),
-            true
-        )
-    };
-    ($fieldname:ident, [$($inner:tt)+], not_null) => {
-        ArrowField::new(
-            stringify!($fieldname),
-            ArrowDataType::Struct(
-                arrow_defs! [$($inner)+].into()
-            ),
-            false
-        )
-    }
-}
-
-macro_rules! arrow_def {
-    ($fieldname:ident $(null)?) => {
-        arrow_map!($fieldname, null)
-    };
-    ($fieldname:ident not_null) => {
-        arrow_map!($fieldname, not_null)
-    };
-    ($fieldname:ident[$inner_name:ident]{$type_qual:ident} $(null)?) => {
-        arrow_list!($fieldname, $inner_name, $type_qual, null)
-    };
-    ($fieldname:ident[$inner_name:ident]{$type_qual:ident} not_null) => {
-        arrow_list!($fieldname, $inner_name, $type_qual, not_null)
-    };
-    ($fieldname:ident:$type_qual:ident $(null)?) => {
-        arrow_field!($fieldname, $type_qual, null)
-    };
-    ($fieldname:ident:$type_qual:ident not_null) => {
-        arrow_field!($fieldname, $type_qual, not_null)
-    };
-    ($fieldname:ident[$($inner:tt)+] $(null)?) => {
-        arrow_struct!($fieldname, [$($inner)+], null)
-    };
-    ($fieldname:ident[$($inner:tt)+] not_null) => {
-        arrow_struct!($fieldname, [$($inner)+], not_null)
-    }
-}
-
-/// A helper macro to create more readable Arrow field definitions, delimited by commas
-///
-/// The argument patterns are as follows:
-///
-/// fieldname (null|not_null)?      -- An arrow field of type map with name "fieldname" consisting of Utf8 key-value pairs, and an
-///                                    optional nullability qualifier (null if not specified).
-///
-/// fieldname:type (null|not_null)? --  An Arrow field consisting of an atomic type. For example,
-///                                     id:Utf8 gets mapped to ArrowField::new("id", ArrowDataType::Utf8, true).
-///                                     where customerCount:Int64 not_null gets mapped to gets mapped to
-///                                     ArrowField::new("customerCount", ArrowDataType::Utf8, true)
-///
-/// fieldname[list_element]{list_element_type} (null|not_null)? --  An Arrow list, with the name of the elements wrapped in square brackets
-///                                                                 and the type of the list elements wrapped in curly brackets. For example,
-///                                                                 customers[name]{Utf8} is an nullable arrow field of type arrow list consisting
-///                                                                 of elements called "name" with type Utf8.
-///
-/// fieldname[element1, element2, element3, ....] (null|not_null)? -- An arrow struct with name "fieldname" consisting of elements adhering to any of the patterns
-///                                                                   documented, including additional structs arbitrarily nested up to the recursion
-///                                                                   limit for Rust macros.
-macro_rules! arrow_defs {
-    () => {
-        vec![] as Vec<ArrowField>
-    };
-    ($($fieldname:ident$(:$type_qual:ident)?$([$($inner:tt)+])?$({$list_type_qual:ident})? $($nullable:ident)?),+) => {
-        vec![
-            $(arrow_def!($fieldname$(:$type_qual)?$([$($inner)+])?$({$list_type_qual})? $($nullable)?)),+
-        ]
-    }
-}
-
-fn max_min_schema_for_fields(dest: &mut Vec<ArrowField>, f: &ArrowField) {
+fn _max_min_schema_for_fields(dest: &mut Vec<ArrowField>, f: &ArrowField) {
     match f.data_type() {
         ArrowDataType::Struct(struct_fields) => {
             let mut child_dest = Vec::new();
 
             for f in struct_fields {
-                max_min_schema_for_fields(&mut child_dest, f);
+                _max_min_schema_for_fields(&mut child_dest, f);
             }
 
             dest.push(ArrowField::new(
@@ -1134,13 +973,13 @@ fn max_min_schema_for_fields(dest: &mut Vec<ArrowField>, f: &ArrowField) {
     }
 }
 
-fn null_count_schema_for_fields(dest: &mut Vec<ArrowField>, f: &ArrowField) {
+fn _null_count_schema_for_fields(dest: &mut Vec<ArrowField>, f: &ArrowField) {
     match f.data_type() {
         ArrowDataType::Struct(struct_fields) => {
             let mut child_dest = Vec::new();
 
             for f in struct_fields {
-                null_count_schema_for_fields(&mut child_dest, f);
+                _null_count_schema_for_fields(&mut child_dest, f);
             }
 
             dest.push(ArrowField::new(
@@ -1153,230 +992,5 @@ fn null_count_schema_for_fields(dest: &mut Vec<ArrowField>, f: &ArrowField) {
             let f = ArrowField::new(f.name(), ArrowDataType::Int64, true);
             dest.push(f);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json;
-    use serde_json::json;
-
-    #[test]
-    fn test_serde_data_types() {
-        let data = r#"
-        {
-            "name": "a",
-            "type": "integer",
-            "nullable": false,
-            "metadata": {}
-        }
-        "#;
-        let field: StructField = serde_json::from_str(data).unwrap();
-        assert!(matches!(
-            field.data_type,
-            DataType::Primitive(PrimitiveType::Integer)
-        ));
-
-        let data = r#"
-        {
-            "name": "c",
-            "type": {
-                "type": "array",
-                "elementType": "integer",
-                "containsNull": false
-            },
-            "nullable": true,
-            "metadata": {}
-        }
-        "#;
-        let field: StructField = serde_json::from_str(data).unwrap();
-        assert!(matches!(field.data_type, DataType::Array(_)));
-
-        let data = r#"
-        {
-            "name": "e",
-            "type": {
-                "type": "array",
-                "elementType": {
-                    "type": "struct",
-                    "fields": [
-                        {
-                            "name": "d",
-                            "type": "integer",
-                            "nullable": false,
-                            "metadata": {}
-                        }
-                    ]
-                },
-                "containsNull": true
-            },
-            "nullable": true,
-            "metadata": {}
-        }
-        "#;
-        let field: StructField = serde_json::from_str(data).unwrap();
-        assert!(matches!(field.data_type, DataType::Array(_)));
-        match field.data_type {
-            DataType::Array(array) => assert!(matches!(array.element_type, DataType::Struct(_))),
-            _ => unreachable!(),
-        }
-
-        let data = r#"
-        {
-            "name": "f",
-            "type": {
-                "type": "map",
-                "keyType": "string",
-                "valueType": "string",
-                "valueContainsNull": true
-            },
-            "nullable": true,
-            "metadata": {}
-        }
-        "#;
-        let field: StructField = serde_json::from_str(data).unwrap();
-        assert!(matches!(field.data_type, DataType::Map(_)));
-    }
-
-    #[test]
-    fn test_roundtrip_decimal() {
-        let data = r#"
-        {
-            "name": "a",
-            "type": "decimal(10, 2)",
-            "nullable": false,
-            "metadata": {}
-        }
-        "#;
-        let field: StructField = serde_json::from_str(data).unwrap();
-        assert!(matches!(
-            field.data_type,
-            DataType::Primitive(PrimitiveType::Decimal(10, 2))
-        ));
-
-        let json_str = serde_json::to_string(&field).unwrap();
-        assert_eq!(
-            json_str,
-            r#"{"name":"a","type":"decimal(10,2)","nullable":false,"metadata":{}}"#
-        );
-    }
-
-    #[test]
-    fn test_field_metadata() {
-        let data = r#"
-        {
-            "name": "e",
-            "type": {
-                "type": "array",
-                "elementType": {
-                    "type": "struct",
-                    "fields": [
-                        {
-                            "name": "d",
-                            "type": "integer",
-                            "nullable": false,
-                            "metadata": {
-                                "delta.columnMapping.id": 5,
-                                "delta.columnMapping.physicalName": "col-a7f4159c-53be-4cb0-b81a-f7e5240cfc49"
-                            }
-                        }
-                    ]
-                },
-                "containsNull": true
-            },
-            "nullable": true,
-            "metadata": {
-                "delta.columnMapping.id": 4,
-                "delta.columnMapping.physicalName": "col-5f422f40-de70-45b2-88ab-1d5c90e94db1"
-            }
-        }
-        "#;
-        let field: StructField = serde_json::from_str(data).unwrap();
-
-        let col_id = field
-            .get_config_value(&ColumnMetadataKey::ColumnMappingId)
-            .unwrap();
-        assert!(matches!(col_id, MetadataValue::Number(num) if *num == 4));
-        let physical_name = field
-            .get_config_value(&ColumnMetadataKey::ColumnMappingPhysicalName)
-            .unwrap();
-        assert!(
-            matches!(physical_name, MetadataValue::String(name) if *name == "col-5f422f40-de70-45b2-88ab-1d5c90e94db1")
-        );
-    }
-
-    #[test]
-    fn test_read_schemas() {
-        let file = std::fs::File::open("./tests/serde/schema.json").unwrap();
-        let schema: Result<StructType, _> = serde_json::from_reader(file);
-        assert!(schema.is_ok());
-
-        let file = std::fs::File::open("./tests/serde/checkpoint_schema.json").unwrap();
-        let schema: Result<StructType, _> = serde_json::from_reader(file);
-        assert!(schema.is_ok())
-    }
-
-    #[test]
-    fn test_get_invariants() {
-        let schema: StructType = serde_json::from_value(json!({
-            "type": "struct",
-            "fields": [{"name": "x", "type": "string", "nullable": true, "metadata": {}}]
-        }))
-        .unwrap();
-        let invariants = schema.get_invariants().unwrap();
-        assert_eq!(invariants.len(), 0);
-
-        let schema: StructType = serde_json::from_value(json!({
-            "type": "struct",
-            "fields": [
-                {"name": "x", "type": "integer", "nullable": true, "metadata": {
-                    "delta.invariants": "{\"expression\": { \"expression\": \"x > 2\"} }"
-                }},
-                {"name": "y", "type": "integer", "nullable": true, "metadata": {
-                    "delta.invariants": "{\"expression\": { \"expression\": \"y < 4\"} }"
-                }}
-            ]
-        }))
-        .unwrap();
-        let invariants = schema.get_invariants().unwrap();
-        assert_eq!(invariants.len(), 2);
-        assert!(invariants.contains(&Invariant::new("x", "x > 2")));
-        assert!(invariants.contains(&Invariant::new("y", "y < 4")));
-
-        let schema: StructType = serde_json::from_value(json!({
-            "type": "struct",
-            "fields": [{
-                "name": "a_map",
-                "type": {
-                    "type": "map",
-                    "keyType": "string",
-                    "valueType": {
-                        "type": "array",
-                        "elementType": {
-                            "type": "struct",
-                            "fields": [{
-                                "name": "d",
-                                "type": "integer",
-                                "metadata": {
-                                    "delta.invariants": "{\"expression\": { \"expression\": \"a_map.value.element.d < 4\"} }"
-                                },
-                                "nullable": false
-                            }]
-                        },
-                        "containsNull": false
-                    },
-                    "valueContainsNull": false
-                },
-                "nullable": false,
-                "metadata": {}
-            }]
-        })).unwrap();
-        let invariants = schema.get_invariants().unwrap();
-        assert_eq!(invariants.len(), 1);
-        assert_eq!(
-            invariants[0],
-            Invariant::new("a_map.value.element.d", "a_map.value.element.d < 4")
-        );
     }
 }

@@ -64,7 +64,7 @@ pub struct BearerTokenProfile {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Profile {
-    share_credentials_version: u32,
+    // share_credentials_version: u32,
     endpoint: String,
     bearer_token: Option<String>,
 }

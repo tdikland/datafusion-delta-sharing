@@ -1,5 +1,9 @@
 # TODO
 
+1. get the schema stuff right
+    - right now can only read unpartitioned tables
+    
+
 major:
 - [ ] TableProvider pushdown to client 
 - [ ] publish crate
@@ -13,3 +17,7 @@ minor:
 
 tidy:
 - [ ] documentation of securable module
+
+
+ROADMAP:
+- support partitioned tables

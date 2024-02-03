@@ -13,6 +13,7 @@ use crate::{
     securable::{Share, Table},
 };
 
+/// 
 pub struct DeltaSharingCatalogList {
     shares: HashMap<String, Arc<dyn CatalogProvider>>,
 }

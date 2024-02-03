@@ -14,11 +14,11 @@ pub struct ErrorResponse {
 }
 
 impl ErrorResponse {
-    pub fn error_code(&self) -> &str {
+    pub fn _error_code(&self) -> &str {
         &self.error_code
     }
 
-    pub fn message(&self) -> &str {
+    pub fn _message(&self) -> &str {
         &self.message
     }
 }
@@ -121,7 +121,7 @@ pub enum ParquetResponse {
 }
 
 impl ParquetResponse {
-    pub fn as_protocol(&self) -> Option<&Protocol> {
+    pub fn _as_protocol(&self) -> Option<&Protocol> {
         match self {
             ParquetResponse::Protocol(p) => Some(p),
             _ => None,
@@ -142,7 +142,7 @@ impl ParquetResponse {
         }
     }
 
-    pub fn as_metadata(&self) -> Option<&Metadata> {
+    pub fn _as_metadata(&self) -> Option<&Metadata> {
         match self {
             ParquetResponse::Metadata(m) => Some(m),
             _ => None,
@@ -156,7 +156,7 @@ impl ParquetResponse {
         }
     }
 
-    pub fn as_file(&self) -> Option<&File> {
+    pub fn _as_file(&self) -> Option<&File> {
         match self {
             ParquetResponse::File(f) => Some(f),
             _ => None,

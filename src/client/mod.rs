@@ -1,7 +1,7 @@
 use reqwest::{Client, Method, Response, StatusCode, Url};
 use serde::Deserialize;
 use serde_json::{json, Deserializer};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, trace};
 
 use self::{
     action::File,
@@ -23,7 +23,6 @@ use {
 
 pub mod action;
 pub mod pagination;
-// pub mod profile;
 pub mod response;
 
 const QUERY_PARAM_VERSION_TIMESTAMP: &'static str = "startingTimestamp";
@@ -267,7 +266,7 @@ impl DeltaSharingClient {
         &self,
         table: &Table,
         _predicates: Option<String>,
-        _limit: Option<u32>,
+        limit: Option<u32>,
     ) -> Result<Vec<File>, DeltaSharingError> {
         let mut url = self.endpoint.clone();
         url.path_segments_mut().expect("valid base").extend([
@@ -282,10 +281,18 @@ impl DeltaSharingClient {
 
         debug!("requesting: {}", url);
 
+        let json_body = if let Some(lim) = limit {
+            json!({
+                "limitHint": lim,
+            })
+        } else {
+            json!({})
+        };
+
         let request = self
             .client
             .request(Method::POST, url)
-            .json(&json!({}))
+            .json(&json_body)
             .bearer_auth(self.profile.token());
 
         debug!("request: {:?}", request);
