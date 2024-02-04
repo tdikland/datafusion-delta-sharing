@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use reqwest::{Client, Method, Response, Url};
 use serde_json::{json, Deserializer};
@@ -267,20 +269,21 @@ impl DeltaSharingClient {
         table: &Table,
     ) -> Result<(Protocol, Metadata), DeltaSharingError> {
         let url = url_for_table(self.profile.endpoint().clone(), table, Some("metadata"));
+        trace!("requesting: {}", url);
 
         let response = self.request(Method::GET, url).await?;
         let status = response.status();
 
         if !status.is_success() {
+            warn!("get table metadata status: {:?}", status);
             let res = response.json::<ErrorResponse>().await.unwrap();
             if status.is_client_error() {
                 return Err(DeltaSharingError::client(res.to_string()));
-            } else if status.is_server_error() {
-                return Err(DeltaSharingError::server(res.to_string()));
             } else {
-                return Err(DeltaSharingError::other("unknown error"));
+                return Err(DeltaSharingError::server(res.to_string()));
             }
         } else {
+            info!("get table metadata status: {:?}", status);
             let full = response.bytes().await?;
             let mut lines = Deserializer::from_slice(&full).into_iter::<ParquetResponse>();
 
@@ -302,40 +305,37 @@ impl DeltaSharingClient {
     pub async fn get_table_data(
         &self,
         table: &Table,
-        _predicates: Option<String>,
+        predicates: Option<String>,
         limit: Option<u32>,
     ) -> Result<Vec<File>, DeltaSharingError> {
         let url = url_for_table(self.profile.endpoint().clone(), table, Some("query"));
+        trace!("requesting: {}", url);
 
-        debug!("requesting: {}", url);
+        let mut body: HashMap<String, String> = HashMap::new();
+        if let Some(pred) = predicates {
+            body.insert("jsonPredicateHints".to_string(), pred);
+        }
+        if let Some(lim) = limit {
+            body.insert("limitHint".to_string(), lim.to_string());
+        }
+        debug!("body: {:?}", body);
 
-        let json_body = if let Some(lim) = limit {
-            json!({
-                "limitHint": lim,
-            })
-        } else {
-            json!({})
-        };
-
-        let request = self
+        let response = self
             .client
             .request(Method::POST, url)
-            .json(&json_body)
-            .authorize_with_profile(&self.profile)
-            .unwrap();
-
-        debug!("request: {:?}", request);
-        let response = request.send().await?;
+            .json(&body)
+            .authorize_with_profile(&self.profile)?
+            .send()
+            .await?;
         let status = response.status();
 
         if !status.is_success() {
-            let res = response.json::<ErrorResponse>().await.unwrap();
+            warn!("get table data status: {:?}", status);
+            let err = response.json::<ErrorResponse>().await.unwrap();
             if status.is_client_error() {
-                return Err(DeltaSharingError::client(res.to_string()));
-            } else if status.is_server_error() {
-                return Err(DeltaSharingError::server(res.to_string()));
+                return Err(DeltaSharingError::client(err.to_string()));
             } else {
-                return Err(DeltaSharingError::other("unknown error"));
+                return Err(DeltaSharingError::server(err.to_string()));
             }
         } else {
             let full = response.bytes().await?;
@@ -727,8 +727,9 @@ mod test {
                 .path("/shares/vaccine_share/schemas/acme_vaccine_data/tables/vaccine_patients/metadata")
                 .header_exists("authorization");
             then.status(200)
-                .header("content-type", "application/json")
+                .header("content-type", "application/x-ndjson")
                 .header("charset", "utf-8")
+                .header("delta-table-version", "123")
                 .body_from_file("./src/client/resources/get_table_metadata.ndjson");
         });
         let client = build_sharing_client(&server);
@@ -748,5 +749,43 @@ mod test {
         assert_eq!(metadata.format().provider(), "parquet");
         assert_eq!(metadata.schema_string(), "schema_as_string");
         assert_eq!(metadata.partition_columns(), &["date"]);
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn get_table_data() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("POST")
+                .path(
+                    "/shares/vaccine_share/schemas/acme_vaccine_data/tables/vaccine_patients/query",
+                )
+                .json_body(json!({
+                    "jsonPredicateHints": "{\"foo\": \"bar\"}",
+                    "limitHint": "100"
+                }))
+                .header_exists("authorization");
+            then.status(200)
+                .header("content-type", "application/x-ndjson")
+                .header("charset", "utf-8")
+                .header("delta-table-version", "123")
+                .body_from_file("./src/client/resources/get_table_data.ndjson");
+        });
+        let client = build_sharing_client(&server);
+        let table = Table::new(
+            "vaccine_share",
+            "acme_vaccine_data",
+            "vaccine_patients",
+            None,
+            None,
+        );
+
+        let result = client
+            .get_table_data(&table, Some("{\"foo\": \"bar\"}".into()), Some(100))
+            .await
+            .unwrap();
+
+        mock.assert();
+        assert_eq!(result.len(), 2);
     }
 }
