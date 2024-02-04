@@ -98,7 +98,7 @@ impl Op {
                     .map_err(|e| DeltaSharingError::other(e.to_string()))?
                     .data_type()
                     .try_into()?;
-                Op::column(&name, value_type)
+                Op::column(name, value_type)
             }
             Expr::Literal(lit) => {
                 let value_type = ValueType::try_from(&lit.data_type())?;
@@ -157,7 +157,7 @@ impl Op {
         Ok(converted)
     }
 
-    pub fn to_string(&self) -> String {
+    pub fn to_string_repr(&self) -> String {
         serde_json::to_string(self).unwrap()
     }
 }
@@ -276,7 +276,7 @@ mod test {
         );
         assert_eq!(parsed_op, expected_op);
 
-        let parsed_filter = parsed_op.to_string();
+        let parsed_filter = parsed_op.to_string_repr();
         let expected_filter = r#"{"op":"equal","children":[{"op":"column","name":"hireDate","valueType":"date"},{"op":"literal","value":"2021-04-29","valueType":"date"}]}"#;
         assert_eq!(parsed_filter, expected_filter);
     }
@@ -318,7 +318,7 @@ mod test {
         ]);
         assert_eq!(parsed_op, expected_op);
 
-        let parsed_filter = parsed_op.to_string();
+        let parsed_filter = parsed_op.to_string_repr();
         let expected_filter = r#"{"op":"and","children":[{"op":"equal","children":[{"op":"column","name":"hireDate","valueType":"date"},{"op":"literal","value":"2021-04-29","valueType":"date"}]},{"op":"lessThan","children":[{"op":"column","name":"id","valueType":"int"},{"op":"literal","value":"25","valueType":"int"}]}]}"#;
         assert_eq!(parsed_filter, expected_filter);
     }
@@ -333,7 +333,7 @@ mod test {
         let expected_op = Op::not(Op::is_null(Op::column("id", ValueType::Int)));
         assert_eq!(parsed_op, expected_op);
 
-        let parsed_filter = parsed_op.to_string();
+        let parsed_filter = parsed_op.to_string_repr();
         let expected_filter = r#"{"op":"not","children":[{"op":"isNull","children":[{"op":"column","name":"id","valueType":"int"}]}]}"#;
         assert_eq!(parsed_filter, expected_filter);
     }

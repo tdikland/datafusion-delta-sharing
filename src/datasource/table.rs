@@ -103,7 +103,7 @@ impl DeltaSharingTable {
     }
 
     fn arrow_schema(&self) -> SchemaRef {
-        let s: StructType = serde_json::from_str(&self.metadata.schema_string()).unwrap();
+        let s: StructType = serde_json::from_str(self.metadata.schema_string()).unwrap();
         let fields = s
             .fields()
             .iter()
@@ -114,7 +114,7 @@ impl DeltaSharingTable {
     }
 
     fn schema(&self) -> Schema {
-        let s: StructType = serde_json::from_str(&self.metadata.schema_string()).unwrap();
+        let s: StructType = serde_json::from_str(self.metadata.schema_string()).unwrap();
         let fields = s
             .fields()
             .iter()
@@ -130,7 +130,7 @@ impl DeltaSharingTable {
         limit: Option<usize>,
     ) -> Result<Vec<File>, DeltaSharingError> {
         let mapped_limit = limit.map(|l| l as u32);
-        let mapped_filter = filter.map(|f| f.to_string());
+        let mapped_filter = filter.map(|f| f.to_string_repr());
         self.client
             .get_table_data(&self.table, mapped_filter, mapped_limit)
             .await
@@ -180,8 +180,7 @@ impl TableProvider for DeltaSharingTable {
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
         // Convert filters to Delta Sharing filter
         let filter = conjunction(filters.iter().cloned())
-            .map(|expr| Op::from_expr(&expr, self.arrow_schema()).ok())
-            .flatten();
+            .and_then(|expr| Op::from_expr(&expr, self.arrow_schema()).ok());
 
         // Fetch files satisfying filters & limit (best effort)
         let files = self.list_files_for_scan(filter, limit).await?;

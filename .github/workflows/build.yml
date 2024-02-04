@@ -99,9 +99,6 @@ jobs:
           override: true
 
       - uses: Swatinem/rust-cache@v2
-
-      - name: Start emulated services
-        run: docker-compose up -d
       
       - name: Run full test
         run: cargo test

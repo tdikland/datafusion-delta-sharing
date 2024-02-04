@@ -26,7 +26,7 @@ pub mod action;
 pub mod pagination;
 pub mod response;
 
-const QUERY_PARAM_VERSION_TIMESTAMP: &'static str = "startingTimestamp";
+const QUERY_PARAM_VERSION_TIMESTAMP: &str = "startingTimestamp";
 
 /// Delta Sharing client
 #[derive(Debug, Clone)]
@@ -59,7 +59,7 @@ impl DeltaSharingClient {
             .expect("valid base")
             .pop_if_empty()
             .push("shares");
-        url.set_pagination(&pagination);
+        url.set_pagination(pagination);
         trace!("URL: {}", url);
 
         let response = self.request(Method::GET, url).await?;
@@ -294,9 +294,9 @@ impl DeltaSharingClient {
             warn!("get table metadata status: {:?}", status);
             let res = response.json::<ErrorResponse>().await.unwrap();
             if status.is_client_error() {
-                return Err(DeltaSharingError::client(res.to_string()));
+                Err(DeltaSharingError::client(res.to_string()))
             } else {
-                return Err(DeltaSharingError::server(res.to_string()));
+                Err(DeltaSharingError::server(res.to_string()))
             }
         } else {
             info!("get table metadata status: {:?}", status);
@@ -350,9 +350,9 @@ impl DeltaSharingClient {
             warn!("get table data status: {:?}", status);
             let err = response.json::<ErrorResponse>().await.unwrap();
             if status.is_client_error() {
-                return Err(DeltaSharingError::client(err.to_string()));
+                Err(DeltaSharingError::client(err.to_string()))
             } else {
-                return Err(DeltaSharingError::server(err.to_string()));
+                Err(DeltaSharingError::server(err.to_string()))
             }
         } else {
             let full = response.bytes().await?;
@@ -370,7 +370,7 @@ impl DeltaSharingClient {
                 .ok_or(DeltaSharingError::parse_response("parsing metadata failed"))?;
 
             let mut files = vec![];
-            while let Some(line) = lines.next() {
+            for line in lines {
                 let file = line.ok().and_then(ParquetResponse::to_file);
                 if let Some(f) = file {
                     files.push(f);

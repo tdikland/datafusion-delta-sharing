@@ -2,8 +2,8 @@
 
 use reqwest::Url;
 
-const QUERY_PARAM_MAX_RESULTS: &'static str = "maxResults";
-const QUERY_PARAM_PAGE_TOKEN: &'static str = "pageToken";
+const QUERY_PARAM_MAX_RESULTS: &str = "maxResults";
+const QUERY_PARAM_PAGE_TOKEN: &str = "pageToken";
 
 /// Pagination information for the request.
 #[derive(Debug)]
@@ -66,7 +66,7 @@ impl PaginationExt for Url {
             query_pairs.append_pair(QUERY_PARAM_MAX_RESULTS, &m.to_string());
         };
         if let Some(token) = &pagination.page_token {
-            query_pairs.append_pair(QUERY_PARAM_PAGE_TOKEN, &token);
+            query_pairs.append_pair(QUERY_PARAM_PAGE_TOKEN, token);
         };
         drop(query_pairs);
     }
