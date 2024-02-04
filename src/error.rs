@@ -8,7 +8,8 @@ use std::{
 use arrow_schema::ArrowError;
 use datafusion::error::DataFusionError;
 
-#[derive(Debug)]
+/// Error type for Delta Sharing.
+#[derive(Debug, Clone)]
 pub struct DeltaSharingError {
     kind: DeltaSharingErrorKind,
     message: String,
@@ -22,55 +23,68 @@ impl DeltaSharingError {
         }
     }
 
+    /// Retrieve the kind of the error
     pub fn kind(&self) -> DeltaSharingErrorKind {
         self.kind
     }
 
+    /// Retrieve the message of the error
     pub fn message(&self) -> &str {
         self.message.as_ref()
     }
 
+    /// Create a new profile error with a message
     pub fn profile(message: impl Into<String>) -> Self {
         Self::new(DeltaSharingErrorKind::ProfileError, message)
     }
 
+    /// Create a new sharing client error with a message
     pub fn client(message: impl Into<String>) -> Self {
         Self::new(DeltaSharingErrorKind::ClientError, message)
     }
 
+    /// Create a new sharing server error with a message
     pub fn server(message: impl Into<String>) -> Self {
         Self::new(DeltaSharingErrorKind::ServerError, message)
     }
 
+    /// Create a new parse response error with a message
     pub fn parse_response(message: impl Into<String>) -> Self {
         Self::new(DeltaSharingErrorKind::ParseResponseError, message)
     }
 
+    /// Create a new parse securable error with a message
     pub fn parse_securable(message: impl Into<String>) -> Self {
         Self::new(DeltaSharingErrorKind::ParseSecurableError, message)
     }
 
+    /// Create a new request error with a message
     pub fn request(message: impl Into<String>) -> Self {
         Self::new(DeltaSharingErrorKind::RequestError, message)
     }
 
+    /// Create a new other error with a message
     pub fn other(message: impl Into<String>) -> Self {
         Self::new(DeltaSharingErrorKind::Other, message)
     }
 }
 
+/// Kind of Delta Sharing error
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeltaSharingErrorKind {
     /// Error related to Delta Sharing profile
     ProfileError,
     /// Error related to parsing shared object names
     ParseSecurableError,
+    /// Error related to parsing the response from the server
     ParseResponseError,
     /// Error related to the the Delta Sharing Client
     ClientError,
     /// Error related to the Delta Sharing Server
     ServerError,
+    /// Error related to the request
     RequestError,
+    /// Other error
     Other,
 }
 

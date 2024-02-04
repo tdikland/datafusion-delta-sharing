@@ -28,6 +28,7 @@ pub mod response;
 
 const QUERY_PARAM_VERSION_TIMESTAMP: &'static str = "startingTimestamp";
 
+/// Delta Sharing client
 #[derive(Debug, Clone)]
 pub struct DeltaSharingClient {
     client: Client,
@@ -35,6 +36,7 @@ pub struct DeltaSharingClient {
 }
 
 impl DeltaSharingClient {
+    /// Create a new Delta Sharing client
     pub fn new(profile: Profile) -> Self {
         Self {
             client: Client::new(),
@@ -42,10 +44,12 @@ impl DeltaSharingClient {
         }
     }
 
+    /// Retrieve the profile of the client
     pub fn profile(&self) -> &Profile {
         &self.profile
     }
 
+    /// List shares with pagination
     pub async fn list_shares_paginated(
         &self,
         pagination: &Pagination,
@@ -75,6 +79,7 @@ impl DeltaSharingClient {
         }
     }
 
+    /// List all available shares
     pub async fn list_shares(&self) -> Result<Vec<Share>, DeltaSharingError> {
         let mut shares = vec![];
         let mut pagination = Pagination::default();
@@ -89,6 +94,7 @@ impl DeltaSharingClient {
         Ok(shares)
     }
 
+    /// Retrieve a share
     pub async fn get_share(&self, share: &Share) -> Result<Share, DeltaSharingError> {
         let url = url_for_share(self.profile.endpoint().clone(), share, None);
         trace!("URL: {}", url);
@@ -111,6 +117,7 @@ impl DeltaSharingClient {
         }
     }
 
+    /// List schemas with pagination
     pub async fn list_schemas_paginated(
         &self,
         share: &Share,
@@ -137,6 +144,7 @@ impl DeltaSharingClient {
         }
     }
 
+    /// List all available schemas
     pub async fn list_schemas(&self, share: &Share) -> Result<Vec<Schema>, DeltaSharingError> {
         let mut schemas = vec![];
         let mut pagination = Pagination::default();
@@ -151,6 +159,7 @@ impl DeltaSharingClient {
         Ok(schemas)
     }
 
+    /// List tables in schema with pagination
     pub async fn list_tables_in_schema_paginated(
         &self,
         schema: &Schema,
@@ -177,6 +186,7 @@ impl DeltaSharingClient {
         }
     }
 
+    /// List all available tables in schema
     pub async fn list_tables(&self, schema: &Schema) -> Result<Vec<Table>, DeltaSharingError> {
         let mut tables = vec![];
         let mut pagination = Pagination::default();
@@ -193,6 +203,7 @@ impl DeltaSharingClient {
         Ok(tables)
     }
 
+    /// List tables in share with pagination
     async fn list_tables_in_share_paginated(
         &self,
         share: &Share,
@@ -219,6 +230,7 @@ impl DeltaSharingClient {
         }
     }
 
+    /// List all available tables in share
     pub async fn list_all_tables(&self, share: &Share) -> Result<Vec<Table>, DeltaSharingError> {
         let mut tables = vec![];
         let mut pagination = Pagination::default();
@@ -235,6 +247,7 @@ impl DeltaSharingClient {
         Ok(tables)
     }
 
+    /// Retrieve the version of a table
     pub async fn get_table_version(
         &self,
         table: &Table,
@@ -266,6 +279,7 @@ impl DeltaSharingClient {
         }
     }
 
+    /// Retrieve the metadata of a table
     pub async fn get_table_metadata(
         &self,
         table: &Table,
@@ -304,6 +318,7 @@ impl DeltaSharingClient {
         }
     }
 
+    /// Retrieve the data of a table
     pub async fn get_table_data(
         &self,
         table: &Table,
@@ -366,7 +381,7 @@ impl DeltaSharingClient {
         }
     }
 
-    pub async fn get_table_changes(&self, _table: &Table) {
+    async fn _get_table_changes(&self, _table: &Table) {
         todo!()
     }
 

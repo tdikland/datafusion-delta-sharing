@@ -205,9 +205,13 @@ impl SchemaProvider for DeltaSharingSchema {
 
     async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
         let table = Table::new(&self.share_name, &self.schema_name, name, None, None);
-        let table_builder = DeltaSharingTableBuilder::new(self.client.profile().clone(), table);
-        let table = table_builder.build().await.ok()?;
-        Some(Arc::new(table))
+        let provider = DeltaSharingTableBuilder::new()
+            .with_profile(self.client.profile().clone())
+            .with_table(table)
+            .build()
+            .await
+            .ok()?;
+        Some(Arc::new(provider))
     }
 
     fn table_exist(&self, name: &str) -> bool {

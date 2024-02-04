@@ -22,15 +22,15 @@
 //! # Ok(()) }
 //! ```
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
 pub mod catalog;
 pub mod client;
-mod datasource;
+pub mod datasource;
 pub mod error;
 pub mod profile;
 pub mod securable;
 
-pub use datasource::{DeltaSharingTable, DeltaSharingTableBuilder};
+pub use datasource::DeltaSharingTable;
 pub use error::{DeltaSharingError, DeltaSharingErrorKind};
 pub use profile::Profile;

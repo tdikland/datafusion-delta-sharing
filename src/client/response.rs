@@ -1,3 +1,5 @@
+//! Delta Sharing server response types.
+
 use std::fmt::{Display, Formatter};
 
 use serde::Deserialize;
@@ -6,6 +8,7 @@ use crate::securable::{Schema, Share, Table};
 
 use super::action::{File, Metadata, Protocol};
 
+/// Delta Sharing server response for failed requests.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorResponse {
@@ -14,10 +17,12 @@ pub struct ErrorResponse {
 }
 
 impl ErrorResponse {
+    /// Retrieve the error code of the response
     pub fn error_code(&self) -> &str {
         &self.error_code
     }
 
+    /// Retrieve the message of the response
     pub fn _message(&self) -> &str {
         &self.message
     }
@@ -29,6 +34,7 @@ impl Display for ErrorResponse {
     }
 }
 
+/// Delta Sharing server response for successful `list_shares` requests.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListSharesResponse {
@@ -37,10 +43,12 @@ pub struct ListSharesResponse {
 }
 
 impl ListSharesResponse {
+    /// Retrieve the shares of the response
     pub fn items(&self) -> &[Share] {
         &self.items
     }
 
+    /// Retrieve the next page token of the response
     pub fn next_page_token(&self) -> Option<&str> {
         self.next_page_token.as_deref()
     }
@@ -55,17 +63,20 @@ impl IntoIterator for ListSharesResponse {
     }
 }
 
+/// Delta Sharing server response for successful `get_share` requests.
 #[derive(Debug, Deserialize)]
 pub struct GetShareResponse {
     share: Share,
 }
 
 impl GetShareResponse {
+    /// Retrieve the share of the response
     pub fn share(&self) -> &Share {
         &self.share
     }
 }
 
+/// Delta Sharing server response for successful `list_schemas` requests.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListSchemasResponse {
@@ -74,10 +85,12 @@ pub struct ListSchemasResponse {
 }
 
 impl ListSchemasResponse {
+    /// Retrieve the schemas of the response
     pub fn items(&self) -> &[Schema] {
         &self.items
     }
 
+    /// Retrieve the next page token of the response
     pub fn next_page_token(&self) -> Option<&str> {
         self.next_page_token.as_deref()
     }
@@ -92,6 +105,8 @@ impl IntoIterator for ListSchemasResponse {
     }
 }
 
+/// Delta Sharing server response for successful `list_tables_in_share` and
+/// `list_tables_in_schema` requests.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListTablesResponse {
@@ -100,10 +115,12 @@ pub struct ListTablesResponse {
 }
 
 impl ListTablesResponse {
+    /// Retrieve the tables of the response
     pub fn items(&self) -> &[Table] {
         &self.items
     }
 
+    /// Retrieve the next page token of the response
     pub fn next_page_token(&self) -> Option<&str> {
         self.next_page_token.as_deref()
     }
@@ -118,24 +135,23 @@ impl IntoIterator for ListTablesResponse {
     }
 }
 
+/// Delta Sharing server response lines for successful `get_table_metadata`,
+/// `get_table_data` and `get_table_changes` requests (in parquet format).
 #[derive(Debug, Deserialize)]
 pub enum ParquetResponse {
+    /// Protocol response
     #[serde(rename = "protocol")]
     Protocol(Protocol),
+    /// Metadata response
     #[serde(rename = "metaData")]
     Metadata(Metadata),
+    /// File response
     #[serde(rename = "file")]
     File(File),
 }
 
 impl ParquetResponse {
-    pub fn _as_protocol(&self) -> Option<&Protocol> {
-        match self {
-            ParquetResponse::Protocol(p) => Some(p),
-            _ => None,
-        }
-    }
-
+    /// Retrieve the protocol of the response
     pub fn to_protocol(self) -> Option<Protocol> {
         match self {
             ParquetResponse::Protocol(p) => Some(p),
@@ -143,6 +159,7 @@ impl ParquetResponse {
         }
     }
 
+    /// Retrieve the metadata of the response
     pub fn to_file(self) -> Option<File> {
         match self {
             ParquetResponse::File(f) => Some(f),
@@ -150,23 +167,10 @@ impl ParquetResponse {
         }
     }
 
-    pub fn _as_metadata(&self) -> Option<&Metadata> {
-        match self {
-            ParquetResponse::Metadata(m) => Some(m),
-            _ => None,
-        }
-    }
-
+    /// Retrieve the metadata of the response
     pub fn to_metadata(self) -> Option<Metadata> {
         match self {
             ParquetResponse::Metadata(m) => Some(m),
-            _ => None,
-        }
-    }
-
-    pub fn _as_file(&self) -> Option<&File> {
-        match self {
-            ParquetResponse::File(f) => Some(f),
             _ => None,
         }
     }

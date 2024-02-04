@@ -1,0 +1,107 @@
+name: build
+
+on:
+  push:
+    branches: ["main", "v*"]
+  pull_request:
+    branches: ["main", "v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install minimal stable with clippy and rustfmt
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: default
+          toolchain: stable
+          override: true
+
+      - name: Format
+        run: cargo fmt -- --check
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install minimal stable with clippy and rustfmt
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: default
+          toolchain: stable
+          override: true
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build and lint with clippy
+        run: cargo clippy --tests
+
+      - name: Check docs
+        run: cargo doc
+
+      - name: Check
+        run: cargo check 
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install minimal stable with clippy and rustfmt
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: default
+          toolchain: "stable"
+          override: true
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run unit tests
+        run: cargo test --lib --verbose
+      
+      - name: Run doc tests
+        run: cargo test --doc --verbose
+
+  integ-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install minimal stable with clippy and rustfmt
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: default
+          toolchain: "stable"
+          override: true
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Start emulated services
+        run: docker-compose up -d
+      
+      - name: Run full test
+        run: cargo test
