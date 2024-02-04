@@ -201,6 +201,7 @@ impl Profile {
     }
 }
 
+/// Profile type.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ProfileType {
     BearerToken(BearerToken),
@@ -237,6 +238,7 @@ impl ProfileType {
     }
 }
 
+/// Bearer token profile type.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct BearerToken {
     token: String,
