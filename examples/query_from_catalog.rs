@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let delta_sharing_catalog = DeltaSharingCatalogList::try_new(profile).await?;
     ctx.register_catalog_list(Arc::new(delta_sharing_catalog));
 
-    ctx.sql("SELECT iso_code, continent, location, date, total_cases FROM delta_sharing.default.`owid-covid-data` WHERE total_cases > 5.0 LIMIT 20;")
+    ctx.sql("SELECT iso_code, continent, location, date, total_cases FROM delta_sharing.default.`owid-covid-data` WHERE total_cases < 10 LIMIT 25;")
         .await?
         .show()
         .await?;

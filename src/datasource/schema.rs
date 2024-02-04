@@ -1,10 +1,12 @@
 //! Delta table schema
 
+use arrow_schema::{
+    ArrowError, DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema, TimeUnit,
+};
+use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Display};
-
-use serde::{Deserialize, Serialize};
 
 const MAP_ROOT_DEFAULT: &str = "entries";
 const MAP_KEY_DEFAULT: &str = "keys";
@@ -400,10 +402,6 @@ impl Display for DataType {
         }
     }
 }
-
-use arrow_schema::{
-    ArrowError, DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema, TimeUnit,
-};
 
 impl TryFrom<&StructType> for ArrowSchema {
     type Error = ArrowError;
