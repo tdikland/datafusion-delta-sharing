@@ -139,19 +139,15 @@ impl Op {
                 let child = Op::from_expr(child, schema)?;
                 Op::not(child)
             }
-            Expr::IsNotNull(_) => todo!(),
+            Expr::IsNotNull(child) => {
+                let child = Op::from_expr(child, schema)?;
+                Op::not(Op::is_null(child))
+            }
             Expr::IsNull(child) => {
                 let child = Op::from_expr(child, schema)?;
                 Op::is_null(child)
             }
-            Expr::IsTrue(_) => todo!(),
-            Expr::IsFalse(_) => todo!(),
-            Expr::IsUnknown(_) => todo!(),
-            Expr::IsNotTrue(_) => todo!(),
-            Expr::IsNotFalse(_) => todo!(),
-            Expr::IsNotUnknown(_) => todo!(),
-            Expr::Between(_) => todo!(),
-            _ => unimplemented!(),
+            _ => return Err(DeltaSharingError::other("Filter not supported")),
         };
 
         Ok(converted)
