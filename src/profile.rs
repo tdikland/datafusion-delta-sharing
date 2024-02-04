@@ -1,4 +1,4 @@
-//! Delta Sharing profile.
+//! Delta Sharing profile types
 //!
 //! The Delta Sharing profile is used to authenticate with a Delta Sharing
 //! server. It contains the endpoint and the token to authenticate with the

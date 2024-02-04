@@ -1,4 +1,4 @@
-//! Basic types for describing shared objects
+//! Delta Sharing shared object types
 
 use std::{fmt::Display, str::FromStr};
 

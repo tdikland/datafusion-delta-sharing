@@ -4,7 +4,10 @@ use serde::Deserialize;
 
 use crate::securable::{Schema, Share, Table};
 
-use super::action::{Add, Cdf, File, Metadata, Protocol, Remove};
+use super::{
+    action::{File, Metadata, Protocol},
+    pagination::{AdvancePagination, Pagination},
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,12 +34,12 @@ impl Display for ErrorResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ListSharesPaginated {
+pub struct ListSharesResponse {
     items: Vec<Share>,
     next_page_token: Option<String>,
 }
 
-impl ListSharesPaginated {
+impl ListSharesResponse {
     pub fn items(&self) -> &[Share] {
         &self.items
     }
@@ -46,7 +49,7 @@ impl ListSharesPaginated {
     }
 }
 
-impl IntoIterator for ListSharesPaginated {
+impl IntoIterator for ListSharesResponse {
     type Item = Share;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
@@ -55,14 +58,35 @@ impl IntoIterator for ListSharesPaginated {
     }
 }
 
+impl AdvancePagination for ListSharesResponse {
+    fn advance_pagination(&self, pagination: &mut Pagination) {
+        if let Some(token) = self.next_page_token() {
+            pagination.set_next_token(Some(token.to_string()));
+        } else {
+            pagination.set_next_token(None);
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetShareResponse {
+    share: Share,
+}
+
+impl GetShareResponse {
+    pub fn share(&self) -> &Share {
+        &self.share
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ListSchemasPaginated {
+pub struct ListSchemasResponse {
     items: Vec<Schema>,
     next_page_token: Option<String>,
 }
 
-impl ListSchemasPaginated {
+impl ListSchemasResponse {
     pub fn items(&self) -> &[Schema] {
         &self.items
     }
@@ -72,7 +96,7 @@ impl ListSchemasPaginated {
     }
 }
 
-impl IntoIterator for ListSchemasPaginated {
+impl IntoIterator for ListSchemasResponse {
     type Item = Schema;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
@@ -83,12 +107,12 @@ impl IntoIterator for ListSchemasPaginated {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ListTablesPaginated {
+pub struct ListTablesResponse {
     items: Vec<Table>,
     next_page_token: Option<String>,
 }
 
-impl ListTablesPaginated {
+impl ListTablesResponse {
     pub fn items(&self) -> &[Table] {
         &self.items
     }
@@ -98,7 +122,7 @@ impl ListTablesPaginated {
     }
 }
 
-impl IntoIterator for ListTablesPaginated {
+impl IntoIterator for ListTablesResponse {
     type Item = Table;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
@@ -115,9 +139,6 @@ pub enum ParquetResponse {
     Metadata(Metadata),
     #[serde(rename = "file")]
     File(File),
-    Add(Add),
-    Cdc(Cdf),
-    Remove(Remove),
 }
 
 impl ParquetResponse {

@@ -18,7 +18,7 @@
 //! let cfg = SessionConfig::new().with_information_schema(true);
 //! let mut ctx = SessionContext::new_with_config(cfg);
 //!
-//! let profile = Profile::from_path("./path/to/profile.share")?;
+//! let profile = Profile::try_from_path("./path/to/profile.share")?;
 //! let catalog_list = DeltaSharingCatalogList::try_new(profile).await?;
 //! ctx.register_catalog_list(Arc::new(catalog_list));
 //!
@@ -206,7 +206,7 @@ impl SchemaProvider for DeltaSharingSchema {
     async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
         let table = Table::new(&self.share_name, &self.schema_name, name, None, None);
         let table_builder = DeltaSharingTableBuilder::new(self.client.profile().clone(), table);
-        let table = table_builder.build().await.expect("table build failed");
+        let table = table_builder.build().await.ok()?;
         Some(Arc::new(table))
     }
 

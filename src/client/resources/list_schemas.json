@@ -1,0 +1,9 @@
+{
+    "items": [
+        {
+            "name": "acme_vaccine_data",
+            "share": "vaccine_share"
+        }
+    ],
+    "nextPageToken": "..."
+}

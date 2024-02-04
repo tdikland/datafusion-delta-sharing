@@ -1,27 +1,22 @@
-use reqwest::{Client, Method, Response, StatusCode, Url};
-use serde::Deserialize;
+use chrono::{DateTime, Utc};
+use reqwest::{Client, Method, Response, Url};
 use serde_json::{json, Deserializer};
-use tracing::{debug, info, trace};
-
-use self::{
-    action::File,
-    pagination::{Pagination, PaginationExt},
-};
+use tracing::{debug, info, trace, warn};
 
 use crate::{
+    client::response::GetShareResponse,
     error::DeltaSharingError,
+    profile::{DeltaSharingProfileExt, Profile},
     securable::{Schema, Share, Table},
 };
+
 use {
-    crate::profile::Profile,
-    action::{Metadata, Protocol},
+    action::{File, Metadata, Protocol},
+    pagination::{Pagination, PaginationExt},
     response::{
-        ErrorResponse, ListSchemasPaginated, ListSharesPaginated, ListTablesPaginated,
-        ParquetResponse,
+        ErrorResponse, ListSchemasResponse, ListSharesResponse, ListTablesResponse, ParquetResponse,
     },
 };
-
-use crate::profile::DeltaSharingProfileExt;
 
 pub mod action;
 pub mod pagination;
@@ -33,15 +28,13 @@ const QUERY_PARAM_VERSION_TIMESTAMP: &'static str = "startingTimestamp";
 pub struct DeltaSharingClient {
     client: Client,
     profile: Profile,
-    endpoint: Url,
 }
 
 impl DeltaSharingClient {
     pub fn new(profile: Profile) -> Self {
         Self {
             client: Client::new(),
-            profile: profile.clone(),
-            endpoint: profile.endpoint().clone(),
+            profile,
         }
     }
 
@@ -52,31 +45,36 @@ impl DeltaSharingClient {
     pub async fn list_shares_paginated(
         &self,
         pagination: &Pagination,
-    ) -> Result<ListSharesPaginated, DeltaSharingError> {
-        let mut url = self.endpoint.clone();
+    ) -> Result<ListSharesResponse, DeltaSharingError> {
+        let mut url = self.profile.endpoint().clone();
         url.path_segments_mut()
             .expect("valid base")
-            .push(&format!("/shares"));
+            .pop_if_empty()
+            .push("shares");
         url.set_pagination(&pagination);
-
-        debug!("requesting: {}", url);
+        trace!("URL: {}", url);
 
         let response = self.request(Method::GET, url).await?;
         let status = response.status();
 
-        info!("STATUS: {}", status);
-
-        response
-            .json::<ServerResponse<ListSharesPaginated>>()
-            .await?
-            .with_status(status)
+        if status.is_success() {
+            info!("list shares status: {:?}", status);
+            Ok(response.json::<ListSharesResponse>().await?)
+        } else {
+            warn!("list shares status: {:?}", status);
+            let err = response.json::<ErrorResponse>().await?;
+            if status.is_client_error() {
+                Err(DeltaSharingError::client(err.to_string()))
+            } else {
+                Err(DeltaSharingError::server(err.to_string()))
+            }
+        }
     }
 
     pub async fn list_shares(&self) -> Result<Vec<Share>, DeltaSharingError> {
         let mut shares = vec![];
         let mut pagination = Pagination::default();
         loop {
-            trace!("requesting page of shares: {:?}", pagination);
             let response = self.list_shares_paginated(&pagination).await?;
             pagination.set_next_token(response.next_page_token().map(ToOwned::to_owned));
             shares.extend(response);
@@ -87,23 +85,52 @@ impl DeltaSharingClient {
         Ok(shares)
     }
 
+    pub async fn get_share(&self, share: &Share) -> Result<Share, DeltaSharingError> {
+        let url = url_for_share(self.profile.endpoint().clone(), share, None);
+        trace!("URL: {}", url);
+
+        let response = self.request(Method::GET, url).await?;
+        let status = response.status();
+
+        if status.is_success() {
+            info!("get share status: {:?}", status);
+            let res = response.json::<GetShareResponse>().await?;
+            Ok(res.share().clone())
+        } else {
+            warn!("get share status: {:?}", status);
+            let err = response.json::<ErrorResponse>().await?;
+            if status.is_client_error() {
+                Err(DeltaSharingError::client(err.to_string()))
+            } else {
+                Err(DeltaSharingError::server(err.to_string()))
+            }
+        }
+    }
+
     pub async fn list_schemas_paginated(
         &self,
         share: &Share,
         pagination: &Pagination,
-    ) -> Result<ListSchemasPaginated, DeltaSharingError> {
-        let mut url = self.endpoint.clone();
-        url.path_segments_mut()
-            .expect("valid base")
-            .push(&format!("/shares/{}/schemas", share));
+    ) -> Result<ListSchemasResponse, DeltaSharingError> {
+        let mut url = url_for_share(self.profile.endpoint().clone(), share, Some("schemas"));
         url.set_pagination(pagination);
+        trace!("URL: {}", url);
 
         let response = self.request(Method::GET, url).await?;
         let status = response.status();
-        response
-            .json::<ServerResponse<ListSchemasPaginated>>()
-            .await?
-            .with_status(status)
+
+        if status.is_success() {
+            info!("list schemas status: {:?}", status);
+            Ok(response.json::<ListSchemasResponse>().await?)
+        } else {
+            warn!("list schemas status: {:?}", status);
+            let err = response.json::<ErrorResponse>().await?;
+            if status.is_client_error() {
+                Err(DeltaSharingError::client(err.to_string()))
+            } else {
+                Err(DeltaSharingError::server(err.to_string()))
+            }
+        }
     }
 
     pub async fn list_schemas(&self, share: &Share) -> Result<Vec<Schema>, DeltaSharingError> {
@@ -124,21 +151,26 @@ impl DeltaSharingClient {
         &self,
         schema: &Schema,
         pagination: &Pagination,
-    ) -> Result<ListTablesPaginated, DeltaSharingError> {
-        let mut url = self.endpoint.clone();
-        url.path_segments_mut().expect("valid base").push(&format!(
-            "/shares/{}/schemas/{}/tables",
-            schema.share_name(),
-            schema.name()
-        ));
+    ) -> Result<ListTablesResponse, DeltaSharingError> {
+        let mut url = url_for_schema(self.profile.endpoint().clone(), schema, Some("tables"));
         url.set_pagination(pagination);
+        trace!("URL: {}", url);
 
         let response = self.request(Method::GET, url).await?;
         let status = response.status();
-        response
-            .json::<ServerResponse<ListTablesPaginated>>()
-            .await?
-            .with_status(status)
+
+        if status.is_success() {
+            info!("list tables in schema status: {:?}", status);
+            Ok(response.json::<ListTablesResponse>().await?)
+        } else {
+            warn!("list tables in schema status: {:?}", status);
+            let err = response.json::<ErrorResponse>().await?;
+            if status.is_client_error() {
+                Err(DeltaSharingError::client(err.to_string()))
+            } else {
+                Err(DeltaSharingError::server(err.to_string()))
+            }
+        }
     }
 
     pub async fn list_tables(&self, schema: &Schema) -> Result<Vec<Table>, DeltaSharingError> {
@@ -161,19 +193,26 @@ impl DeltaSharingClient {
         &self,
         share: &Share,
         pagination: &Pagination,
-    ) -> Result<ListTablesPaginated, DeltaSharingError> {
-        let mut url = self.endpoint.clone();
-        url.path_segments_mut()
-            .expect("valid base")
-            .push(&format!("/shares/{}/all-tables", share.name()));
+    ) -> Result<ListTablesResponse, DeltaSharingError> {
+        let mut url = url_for_share(self.profile.endpoint().clone(), share, Some("all-tables"));
         url.set_pagination(pagination);
+        trace!("URL: {}", url);
 
         let response = self.request(Method::GET, url).await?;
         let status = response.status();
-        response
-            .json::<ServerResponse<ListTablesPaginated>>()
-            .await?
-            .with_status(status)
+
+        if status.is_success() {
+            info!("list tables in share status: {:?}", status);
+            Ok(response.json::<ListTablesResponse>().await?)
+        } else {
+            warn!("list tables in share status: {:?}", status);
+            let err = response.json::<ErrorResponse>().await?;
+            if status.is_client_error() {
+                Err(DeltaSharingError::client(err.to_string()))
+            } else {
+                Err(DeltaSharingError::server(err.to_string()))
+            }
+        }
     }
 
     pub async fn list_all_tables(&self, share: &Share) -> Result<Vec<Table>, DeltaSharingError> {
@@ -195,46 +234,42 @@ impl DeltaSharingClient {
     pub async fn get_table_version(
         &self,
         table: &Table,
-        starting_timestamp: Option<&str>,
+        starting_timestamp: Option<DateTime<Utc>>,
     ) -> Result<u64, DeltaSharingError> {
-        let mut url = self.endpoint.clone();
-        url.path_segments_mut().expect("valid base").push(&format!(
-            "/shares/{}/schemas/{}/tables/{}/version",
-            table.share_name(),
-            table.schema_name(),
-            table.name()
-        ));
+        let mut url = url_for_table(self.profile.endpoint().clone(), table, Some("version"));
         if let Some(ts) = starting_timestamp {
-            url.query_pairs_mut()
-                .append_pair(QUERY_PARAM_VERSION_TIMESTAMP, ts);
+            url.query_pairs_mut().append_pair(
+                QUERY_PARAM_VERSION_TIMESTAMP,
+                &ts.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            );
         }
+        trace!("URL: {}", url);
 
-        let response = self.request(Method::GET, url).await.unwrap();
-        response
-            .headers()
-            .get("Delta-Table-Version")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse::<u64>().ok())
-            .ok_or(DeltaSharingError::parse_response("parsing version failed"))
+        let response = self.request(Method::GET, url).await?;
+        let status = response.status();
+
+        if status.is_success() {
+            info!("get table version status: {:?}", status);
+            parse_table_version(&response)
+        } else {
+            warn!("get table version status: {:?}", status);
+            let err = response.json::<ErrorResponse>().await?;
+            if status.is_client_error() {
+                Err(DeltaSharingError::client(err.to_string()))
+            } else {
+                Err(DeltaSharingError::server(err.to_string()))
+            }
+        }
     }
 
     pub async fn get_table_metadata(
         &self,
         table: &Table,
     ) -> Result<(Protocol, Metadata), DeltaSharingError> {
-        let mut url = self.endpoint.clone();
-        url.set_path(&format!(
-            "{}/shares/{}/schemas/{}/tables/{}/metadata",
-            url.path(),
-            table.share_name(),
-            table.schema_name(),
-            table.name()
-        ));
-        debug!("requesting: {}", url);
+        let url = url_for_table(self.profile.endpoint().clone(), table, Some("metadata"));
 
         let response = self.request(Method::GET, url).await?;
         let status = response.status();
-        debug!("STATUS: {}", status);
 
         if !status.is_success() {
             let res = response.json::<ErrorResponse>().await.unwrap();
@@ -270,16 +305,7 @@ impl DeltaSharingClient {
         _predicates: Option<String>,
         limit: Option<u32>,
     ) -> Result<Vec<File>, DeltaSharingError> {
-        let mut url = self.endpoint.clone();
-        url.path_segments_mut().expect("valid base").extend([
-            "shares",
-            table.share_name(),
-            "schemas",
-            table.schema_name(),
-            "tables",
-            table.name(),
-            "query",
-        ]);
+        let url = url_for_table(self.profile.endpoint().clone(), table, Some("query"));
 
         debug!("requesting: {}", url);
 
@@ -353,26 +379,374 @@ impl DeltaSharingClient {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-pub enum ServerResponse<T> {
-    Error(ErrorResponse),
-    Succes(T),
+fn url_for_share(endpoint: Url, share: &Share, res: Option<&str>) -> Url {
+    let mut url = endpoint;
+    url.path_segments_mut()
+        .expect("valid base")
+        .pop_if_empty()
+        .push("shares")
+        .push(share.name());
+    if let Some(r) = res {
+        url.path_segments_mut().expect("valid base").push(r);
+    }
+    url
 }
 
-impl<T> ServerResponse<T> {
-    pub fn with_status(self, status: StatusCode) -> Result<T, DeltaSharingError> {
-        match self {
-            ServerResponse::Error(e) => {
-                if status.is_client_error() {
-                    Err(DeltaSharingError::client(e.to_string()))
-                } else if status.is_server_error() {
-                    Err(DeltaSharingError::server(e.to_string()))
-                } else {
-                    Err(DeltaSharingError::other("unknown error"))
-                }
-            }
-            ServerResponse::Succes(t) => Ok(t),
-        }
+fn url_for_schema(endpoint: Url, schema: &Schema, res: Option<&str>) -> Url {
+    let mut url = endpoint;
+    url.path_segments_mut()
+        .expect("valid base")
+        .pop_if_empty()
+        .extend(&["shares", schema.share_name(), "schemas", schema.name()]);
+    if let Some(r) = res {
+        url.path_segments_mut().expect("valid base").push(r);
+    }
+    url
+}
+
+fn url_for_table(endpoint: Url, table: &Table, res: Option<&str>) -> Url {
+    let mut url = endpoint;
+    url.path_segments_mut()
+        .expect("valid base")
+        .pop_if_empty()
+        .extend(&[
+            "shares",
+            table.share_name(),
+            "schemas",
+            table.schema_name(),
+            "tables",
+            table.name(),
+        ]);
+    if let Some(r) = res {
+        url.path_segments_mut().expect("valid base").push(r);
+    }
+    url
+}
+
+fn parse_table_version(response: &Response) -> Result<u64, DeltaSharingError> {
+    response
+        .headers()
+        .get("Delta-Table-Version")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .ok_or(DeltaSharingError::parse_response("parsing version failed"))
+}
+
+#[cfg(test)]
+mod test {
+    use chrono::{TimeZone, Utc};
+    use httpmock::MockServer;
+    use tracing_test::traced_test;
+
+    use crate::profile::ProfileType;
+
+    use super::*;
+
+    #[test]
+    fn test_url_for_share() {
+        let endpoint = Url::parse("https://example.com/prefix").unwrap();
+        let share = Share::new("my-share", None);
+        let url = url_for_share(endpoint.clone(), &share, None);
+        assert_eq!(url.as_str(), "https://example.com/prefix/shares/my-share");
+
+        let url = url_for_share(endpoint.clone(), &share, Some("res"));
+        assert_eq!(
+            url.as_str(),
+            "https://example.com/prefix/shares/my-share/res"
+        );
+    }
+
+    #[test]
+    fn test_url_for_schema() {
+        let endpoint = Url::parse("https://example.com/prefix/").unwrap();
+        let schema = Schema::new("my-share", "my-schema");
+        let url = url_for_schema(endpoint.clone(), &schema, None);
+        assert_eq!(
+            url.as_str(),
+            "https://example.com/prefix/shares/my-share/schemas/my-schema"
+        );
+
+        let url = url_for_schema(endpoint.clone(), &schema, Some("res"));
+        assert_eq!(
+            url.as_str(),
+            "https://example.com/prefix/shares/my-share/schemas/my-schema/res"
+        );
+    }
+
+    #[test]
+    fn test_url_for_table() {
+        let endpoint = Url::parse("https://example.com/prefix").unwrap();
+        let table = Table::new("my-share", "my-schema", "my-table", None, None);
+        let url = url_for_table(endpoint.clone(), &table, None);
+        assert_eq!(
+            url.as_str(),
+            "https://example.com/prefix/shares/my-share/schemas/my-schema/tables/my-table"
+        );
+
+        let url = url_for_table(endpoint.clone(), &table, Some("res"));
+        assert_eq!(
+            url.as_str(),
+            "https://example.com/prefix/shares/my-share/schemas/my-schema/tables/my-table/res"
+        );
+    }
+
+    fn build_sharing_client(server: &MockServer) -> DeltaSharingClient {
+        let profile_type = ProfileType::new_bearer_token("test-token", None);
+        let mock_server_url = server.base_url().parse::<Url>().unwrap();
+        let profile: Profile = Profile::from_profile_type(1, mock_server_url, profile_type);
+        DeltaSharingClient::new(profile)
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn list_shares_paginated() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/shares")
+                .query_param("maxResults", "1")
+                .query_param("pageToken", "foo")
+                .header_exists("authorization");
+            then.status(200)
+                .header("content-type", "application/json")
+                .header("charset", "utf-8")
+                .body_from_file("./src/client/resources/list_shares.json");
+        });
+        let client = build_sharing_client(&server);
+
+        let result = client
+            .list_shares_paginated(&Pagination::start(Some(1), Some("foo".into())))
+            .await
+            .unwrap();
+
+        mock.assert();
+        assert_eq!(
+            result.items(),
+            vec![
+                Share::new(
+                    "vaccine_share",
+                    Some("edacc4a7-6600-4fbb-85f3-a62a5ce6761f")
+                ),
+                Share::new("sales_share", Some("3e979c79-6399-4dac-bcf8-54e268f48515"))
+            ]
+        );
+        assert_eq!(result.next_page_token(), Some("..."));
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn get_share() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/shares/vaccine_share")
+                .header_exists("authorization");
+            then.status(200)
+                .header("content-type", "application/json")
+                .header("charset", "utf-8")
+                .body_from_file("./src/client/resources/get_share.json");
+        });
+        let client = build_sharing_client(&server);
+        let share = Share::new(
+            "vaccine_share",
+            Some("edacc4a7-6600-4fbb-85f3-a62a5ce6761f"),
+        );
+
+        let result = client.get_share(&share).await.unwrap();
+
+        mock.assert();
+        assert_eq!(result, share);
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn list_schemas_paginated() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/shares/vaccine_share/schemas")
+                .query_param("maxResults", "1")
+                .query_param("pageToken", "foo")
+                .header_exists("authorization");
+            then.status(200)
+                .header("content-type", "application/json")
+                .header("charset", "utf-8")
+                .body_from_file("./src/client/resources/list_schemas.json");
+        });
+        let client = build_sharing_client(&server);
+        let share = Share::new("vaccine_share", None);
+
+        let result = client
+            .list_schemas_paginated(&share, &Pagination::start(Some(1), Some("foo".into())))
+            .await
+            .unwrap();
+
+        mock.assert();
+        assert_eq!(
+            result.items(),
+            vec![Schema::new("vaccine_share", "acme_vaccine_data")]
+        );
+        assert_eq!(result.next_page_token(), Some("..."));
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn list_tables_in_schema_paginated() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/shares/vaccine_share/schemas/acme_vaccine_data/tables")
+                .query_param("maxResults", "1")
+                .query_param("pageToken", "foo")
+                .header_exists("authorization");
+            then.status(200)
+                .header("content-type", "application/json")
+                .header("charset", "utf-8")
+                .body_from_file("./src/client/resources/list_tables_in_schema.json");
+        });
+        let client = build_sharing_client(&server);
+        let schema = Schema::new("vaccine_share", "acme_vaccine_data");
+
+        let result = client
+            .list_tables_in_schema_paginated(
+                &schema,
+                &Pagination::start(Some(1), Some("foo".into())),
+            )
+            .await
+            .unwrap();
+
+        mock.assert();
+        assert_eq!(
+            result.items(),
+            vec![
+                Table::new(
+                    "vaccine_share",
+                    "acme_vaccine_data",
+                    "vaccine_ingredients",
+                    Some("edacc4a7-6600-4fbb-85f3-a62a5ce6761f".into()),
+                    Some("dcb1e680-7da4-4041-9be8-88aff508d001".into())
+                ),
+                Table::new(
+                    "vaccine_share",
+                    "acme_vaccine_data",
+                    "vaccine_patients",
+                    Some("edacc4a7-6600-4fbb-85f3-a62a5ce6761f".into()),
+                    Some("c48f3e19-2c29-4ea3-b6f7-3899e53338fa".into())
+                )
+            ]
+        );
+        assert_eq!(result.next_page_token(), Some("..."));
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn list_tables_in_share_paginated() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/shares/vaccine_share/all-tables")
+                .query_param("maxResults", "1")
+                .query_param("pageToken", "foo")
+                .header_exists("authorization");
+            then.status(200)
+                .header("content-type", "application/json")
+                .header("charset", "utf-8")
+                .body_from_file("./src/client/resources/list_tables_in_share.json");
+        });
+        let client = build_sharing_client(&server);
+        let share = Share::new("vaccine_share", None);
+
+        let result = client
+            .list_tables_in_share_paginated(&share, &Pagination::start(Some(1), Some("foo".into())))
+            .await
+            .unwrap();
+
+        mock.assert();
+        assert_eq!(
+            result.items(),
+            vec![
+                Table::new(
+                    "vaccine_share",
+                    "acme_vaccine_ingredient_data",
+                    "vaccine_ingredients",
+                    Some("edacc4a7-6600-4fbb-85f3-a62a5ce6761f".into()),
+                    Some("2f9729e9-6fcf-4d34-96df-bf72b26dfbe9".into())
+                ),
+                Table::new(
+                    "vaccine_share",
+                    "acme_vaccine_patient_data",
+                    "vaccine_patients",
+                    Some("edacc4a7-6600-4fbb-85f3-a62a5ce6761f".into()),
+                    Some("74be6365-0fc8-4a2f-8720-0de125bb5832".into())
+                )
+            ]
+        );
+        assert_eq!(result.next_page_token(), Some("..."));
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn get_table_version() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/shares/vaccine_share/schemas/acme_vaccine_data/tables/vaccine_patients/version")
+                .query_param("startingTimestamp", "2022-01-01T00:00:00Z")
+                .header_exists("authorization");
+            then.status(200)
+                .header("delta-table-version", "123")
+                .header("content-type", "application/json")
+                .header("charset", "utf-8")
+                .body("");
+        });
+        let client = build_sharing_client(&server);
+        let table = Table::new(
+            "vaccine_share",
+            "acme_vaccine_data",
+            "vaccine_patients",
+            None,
+            None,
+        );
+        let starting_timestamp = Utc.with_ymd_and_hms(2022, 1, 1, 0, 0, 0).unwrap();
+
+        let result = client
+            .get_table_version(&table, Some(starting_timestamp))
+            .await
+            .unwrap();
+
+        mock.assert();
+        assert_eq!(result, 123);
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn get_table_metadata() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/shares/vaccine_share/schemas/acme_vaccine_data/tables/vaccine_patients/metadata")
+                .header_exists("authorization");
+            then.status(200)
+                .header("content-type", "application/json")
+                .header("charset", "utf-8")
+                .body_from_file("./src/client/resources/get_table_metadata.ndjson");
+        });
+        let client = build_sharing_client(&server);
+        let table = Table::new(
+            "vaccine_share",
+            "acme_vaccine_data",
+            "vaccine_patients",
+            None,
+            None,
+        );
+
+        let (protocol, metadata) = client.get_table_metadata(&table).await.unwrap();
+
+        mock.assert();
+        assert_eq!(protocol.min_reader_version(), 1);
+        assert_eq!(metadata.id(), "table_id");
+        assert_eq!(metadata.format().provider(), "parquet");
+        assert_eq!(metadata.schema_string(), "schema_as_string");
+        assert_eq!(metadata.partition_columns(), &["date"]);
     }
 }

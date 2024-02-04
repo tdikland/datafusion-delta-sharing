@@ -1,0 +1,19 @@
+{
+    "items": [
+        {
+            "share": "vaccine_share",
+            "schema": "acme_vaccine_data",
+            "name": "vaccine_ingredients",
+            "shareId": "edacc4a7-6600-4fbb-85f3-a62a5ce6761f",
+            "id": "dcb1e680-7da4-4041-9be8-88aff508d001"
+        },
+        {
+            "share": "vaccine_share",
+            "schema": "acme_vaccine_data",
+            "name": "vaccine_patients",
+            "shareId": "edacc4a7-6600-4fbb-85f3-a62a5ce6761f",
+            "id": "c48f3e19-2c29-4ea3-b6f7-3899e53338fa"
+        }
+    ],
+    "nextPageToken": "..."
+}

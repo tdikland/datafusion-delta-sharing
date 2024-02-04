@@ -1,3 +1,5 @@
+//! Delta Sharing errors types
+
 use std::{
     error::Error,
     fmt::{Display, Formatter},
@@ -90,11 +92,11 @@ impl Display for DeltaSharingErrorKind {
 impl Error for DeltaSharingError {}
 
 impl From<reqwest::Error> for DeltaSharingError {
-    fn from(e: reqwest::Error) -> Self {
-        if e.is_decode() {
-            return Self::parse_response(e.to_string());
+    fn from(value: reqwest::Error) -> Self {
+        if value.is_decode() {
+            return Self::parse_response(value.to_string());
         }
-        Self::request(e.to_string())
+        Self::request(value.to_string())
     }
 }
 

@@ -3,6 +3,7 @@ use reqwest::Url;
 const QUERY_PARAM_MAX_RESULTS: &'static str = "maxResults";
 const QUERY_PARAM_PAGE_TOKEN: &'static str = "pageToken";
 
+/// Pagination information for the request.
 #[derive(Debug)]
 pub struct Pagination {
     max_results: Option<u32>,
@@ -63,3 +64,28 @@ impl PaginationExt for Url {
         drop(query_pairs);
     }
 }
+
+pub trait AdvancePagination {
+    fn advance_pagination(&self, pagination: &mut Pagination);
+}
+
+// pub async fn list_with_pagination<
+//     T,
+//     I: IntoIterator<Item = T> + AdvancePagination,
+//     F: for<'a> Fn(&'a Pagination) -> Fut,
+//     Fut: Future<Output = Result<I, DeltaSharingError>> + Send + Sync + 'static,
+// >(
+//     f: F,
+// ) -> Result<Vec<T>, DeltaSharingError> {
+//     let mut collection = vec![];
+//     let mut pagination = Pagination::default();
+//     loop {
+//         let mut response = f(&pagination).await?;
+//         response.advance_pagination(&mut pagination);
+//         collection.extend(response);
+//         if pagination.is_finished() {
+//             break;
+//         }
+//     }
+//     Ok(collection)
+// }
