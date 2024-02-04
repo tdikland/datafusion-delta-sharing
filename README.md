@@ -11,6 +11,14 @@ dataset stored on popular cloud storage systems like S3, ADLS, and GCS.
 [![crates-io](https://img.shields.io/crates/v/datafusion-delta-sharing.svg)](https://crates.io/crates/datafusion-delta-sharing)
 [![api-docs](https://docs.rs/datafusion-delta-sharing/badge.svg)](https://docs.rs/datafusion-delta-sharing)
 
+## Installation
+
+The crate can be installed using cargo:
+
+```bash
+cargo add datafusion-delta-sharing
+```
+
 ## Example
 
 An example of the integration is shown below:
