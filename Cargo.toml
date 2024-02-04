@@ -1,9 +1,14 @@
 [package]
 name = "datafusion-delta-sharing"
 version = "0.1.0"
+authors = ["Tim Dikland <timdikland@gmail.com>"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+rust-version = "1.72.1"
+description = "Delta Sharing integaration for DataFusion"
+readme = "README.md"
+repository = "https://github.com/tdikland/datafusion-delta-sharing"
+license = "MIT"
+keywords = ["sharing", "delta", "deltalake", "delta sharing", "datafusion"]
 
 [dependencies]
 arrow = "50.0.0"
@@ -16,22 +21,17 @@ futures = "0.3.30"
 object_store = { version = "0.9.0", features = ["http"] }
 parquet = { version = "50.0.0", features = ["async"] }
 reqwest = { version = "0.11.23", features = ["json"] }
-reqwest-middleware = "0.2.4"
-reqwest-retry = "0.3.0"
-reqwest-tracing = "0.4.7"
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
-thiserror = "1.0.56"
-tokio = { version = "1.35.1", features = ["full"] }
 tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = [
-    "tracing",
-    "env-filter",
-] }
-tracing-test = { version = "0.2.4" }
 url = "2.5.0"
 
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["full"] }
 httpmock = "0.7.0-rc.1"
 tempfile = "3.9.0"
+tracing-subscriber = { version = "0.3.18", features = [
+    "tracing",
+    "env-filter",
+] }
+tracing-test = { version = "0.2.4" }
