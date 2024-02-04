@@ -34,3 +34,4 @@ url = "2.5.0"
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["full"] }
 httpmock = "0.7.0-rc.1"
+tempfile = "3.9.0"

@@ -27,6 +27,10 @@ impl DeltaSharingError {
         self.message.as_ref()
     }
 
+    pub fn profile(message: impl Into<String>) -> Self {
+        Self::new(DeltaSharingErrorKind::ProfileError, message)
+    }
+
     pub fn client(message: impl Into<String>) -> Self {
         Self::new(DeltaSharingErrorKind::ClientError, message)
     }
@@ -54,6 +58,7 @@ impl DeltaSharingError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeltaSharingErrorKind {
+    ProfileError,
     ParseSecurableError,
     ParseResponseError,
     ClientError,
@@ -71,6 +76,7 @@ impl Display for DeltaSharingError {
 impl Display for DeltaSharingErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ProfileError => write!(f, "PROFILE_ERROR"),
             Self::ParseSecurableError => write!(f, "ParseSecurableError"),
             Self::ParseResponseError => write!(f, "ParseResponseError"),
             Self::RequestError => write!(f, "RequestError"),

@@ -38,7 +38,7 @@ pub mod catalog;
 mod client;
 mod datasource;
 pub mod error;
-mod profile;
+pub mod profile;
 pub mod securable;
 
 pub use datasource::{DeltaSharingTable, DeltaSharingTableBuilder};

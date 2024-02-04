@@ -30,7 +30,6 @@
 
 use std::{any::Any, sync::Arc};
 
-use arrow::compute::kernels::filter;
 use datafusion::{
     arrow::datatypes::{Field, Schema, SchemaRef},
     common::{stats::Statistics, Constraints},
@@ -109,7 +108,7 @@ pub struct DeltaSharingTable {
 impl DeltaSharingTable {
     pub async fn try_from_str(s: &str) -> Result<Self, DeltaSharingError> {
         let (profile_path, table_fqn) = s.split_once('#').ok_or(DeltaSharingError::other("The connection string should be formatted as `<path/to/profile>#<share_name>.<schema_name>.<table_name>"))?;
-        let profile = Profile::from_path(profile_path)?;
+        let profile = Profile::try_from_path(profile_path)?;
         let table = table_fqn.parse::<Table>()?;
 
         DeltaSharingTableBuilder::new(profile, table).build().await
@@ -211,9 +210,9 @@ impl TableProvider for DeltaSharingTable {
 
     fn supports_filter_pushdown(
         &self,
-        _filter: &Expr,
+        filter: &Expr,
     ) -> DataFusionResult<TableProviderFilterPushDown> {
-        let op = expr::Op::from_expr(_filter, self.arrow_schema());
+        let op = expr::Op::from_expr(filter, self.arrow_schema());
         if op.is_ok() {
             return Ok(TableProviderFilterPushDown::Inexact);
         } else {

@@ -21,6 +21,8 @@ use {
     },
 };
 
+use crate::profile::DeltaSharingProfileExt;
+
 pub mod action;
 pub mod pagination;
 pub mod response;
@@ -39,7 +41,7 @@ impl DeltaSharingClient {
         Self {
             client: Client::new(),
             profile: profile.clone(),
-            endpoint: profile.url(),
+            endpoint: profile.endpoint().clone(),
         }
     }
 
@@ -293,7 +295,8 @@ impl DeltaSharingClient {
             .client
             .request(Method::POST, url)
             .json(&json_body)
-            .bearer_auth(self.profile.token());
+            .authorize_with_profile(&self.profile)
+            .unwrap();
 
         debug!("request: {:?}", request);
         let response = request.send().await?;
@@ -342,7 +345,8 @@ impl DeltaSharingClient {
     async fn request(&self, method: Method, url: Url) -> Result<Response, DeltaSharingError> {
         self.client
             .request(method, url)
-            .bearer_auth(self.profile.token())
+            .authorize_with_profile(&self.profile)
+            .unwrap()
             .send()
             .await
             .map_err(Into::into)
