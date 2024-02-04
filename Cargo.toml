@@ -9,6 +9,7 @@ readme = "README.md"
 repository = "https://github.com/tdikland/datafusion-delta-sharing"
 license = "MIT"
 keywords = ["sharing", "delta", "deltalake", "delta sharing", "datafusion"]
+categories = ["database-implementations", "database", "web-programming"]
 
 [dependencies]
 arrow = "50.0.0"
