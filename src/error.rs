@@ -5,6 +5,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+use arrow_schema::ArrowError;
 use datafusion::error::DataFusionError;
 
 #[derive(Debug)]
@@ -60,10 +61,14 @@ impl DeltaSharingError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeltaSharingErrorKind {
+    /// Error related to Delta Sharing profile
     ProfileError,
+    /// Error related to parsing shared object names
     ParseSecurableError,
     ParseResponseError,
+    /// Error related to the the Delta Sharing Client
     ClientError,
+    /// Error related to the Delta Sharing Server
     ServerError,
     RequestError,
     Other,
@@ -97,6 +102,12 @@ impl From<reqwest::Error> for DeltaSharingError {
             return Self::parse_response(value.to_string());
         }
         Self::request(value.to_string())
+    }
+}
+
+impl From<ArrowError> for DeltaSharingError {
+    fn from(value: ArrowError) -> Self {
+        Self::other(value.to_string())
     }
 }
 

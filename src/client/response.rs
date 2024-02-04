@@ -4,10 +4,7 @@ use serde::Deserialize;
 
 use crate::securable::{Schema, Share, Table};
 
-use super::{
-    action::{File, Metadata, Protocol},
-    pagination::{AdvancePagination, Pagination},
-};
+use super::action::{File, Metadata, Protocol};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,7 +14,7 @@ pub struct ErrorResponse {
 }
 
 impl ErrorResponse {
-    pub fn _error_code(&self) -> &str {
+    pub fn error_code(&self) -> &str {
         &self.error_code
     }
 
@@ -55,16 +52,6 @@ impl IntoIterator for ListSharesResponse {
 
     fn into_iter(self) -> Self::IntoIter {
         self.items.into_iter()
-    }
-}
-
-impl AdvancePagination for ListSharesResponse {
-    fn advance_pagination(&self, pagination: &mut Pagination) {
-        if let Some(token) = self.next_page_token() {
-            pagination.set_next_token(Some(token.to_string()));
-        } else {
-            pagination.set_next_token(None);
-        }
     }
 }
 

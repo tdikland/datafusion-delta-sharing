@@ -2,30 +2,22 @@
 //!
 //! Example:
 //!
-//! ```rust
+//! ```no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # use datafusion_delta_sharing::error::DeltaSharingError;
+//! # async {
 //! use std::sync::Arc;
 //! use datafusion::prelude::*;
 //!
-//! use datafusion_delta_sharing::datasource::DeltaSharingTableBuilder;
-//! use datafusion_delta_sharing::securable::Table;
+//! use datafusion_delta_sharing::DeltaSharingTable;
 //!
 //! let ctx = SessionContext::new();
+//! let table = DeltaSharingTable::try_from_str("./path/to/profile.share#share.schema.table").await?;
 //!
-//! let endpoint = std::env::var("SHARING_ENDPOINT").unwrap();
-//! let token = std::env::var("SHARING_TOKEN").unwrap();
-//! let profile = DeltaSharingProfile::new(endpoint, token);
-//! let table = Table::new("share", "schema", "table", None, None);
-//!
-//! let table = DeltaSharingTableBuilder::new(profile.clone(), table.clone())
-//!     .with_profile(profile)
-//!     .with_table(table)
-//!     .build()
-//!     .await
-//!     .unwrap();
-//!
-//! ctx.register_table("demo", Arc::new(table)).unwrap();
-//!
-//! let data = ctx.sql("select * from demo").await.unwrap().collect().await.unwrap();
+//! ctx.register_table("demo", Arc::new(table))?;
+//! ctx.sql("select * from demo").await?.show().await?;
+//! # Ok::<(), Box<dyn std::error::Error>>(()) };
+//! # Ok(()) }
 //! ```
 
 use std::{any::Any, sync::Arc};

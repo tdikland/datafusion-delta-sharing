@@ -204,6 +204,7 @@ impl Profile {
 /// Profile type.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ProfileType {
+    /// Bearer token profile type.
     BearerToken(BearerToken),
 }
 

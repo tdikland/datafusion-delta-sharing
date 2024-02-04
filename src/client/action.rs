@@ -38,10 +38,12 @@ pub struct Format {
 }
 
 impl Format {
+    /// Retrieve the format provider.
     pub fn provider(&self) -> &str {
         self.provider.as_ref()
     }
 
+    /// Retrieve the format options.
     pub fn options(&self) -> Option<&HashMap<String, String>> {
         self.options.as_ref()
     }

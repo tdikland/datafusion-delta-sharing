@@ -11,28 +11,18 @@
 //! use std::sync::Arc;
 //! use datafusion::prelude::*;
 //!
-//! use datafusion_delta_sharing::DeltaSharingProfile;
-//! use datafusion_delta_sharing::datasource::DeltaSharingTableBuilder;
-//! use datafusion_delta_sharing::securable::Table;
+//! use datafusion_delta_sharing::DeltaSharingTable;
 //!
 //! let ctx = SessionContext::new();
-//!
-//! let profile = DeltaSharingProfile::from_path("./path/to/profile.share");
-//! let table_fqn: Table = "my-share.my-schema.my-table".parse()?;
-//!
-//! let table = DeltaSharingTableBuilder::new()
-//!     .with_profile(profile)
-//!     .with_table(table_fqn)
-//!     .build()
-//!     .await?;
+//! let table = DeltaSharingTable::try_from_str("./path/to/profile.share#share.schema.table").await?;
 //!
 //! ctx.register_table("demo", Arc::new(table))?;
 //! let data = ctx.sql("select * from demo").await?.collect().await?;
-//! # }
+//! # Ok::<(), Box<dyn std::error::Error>>(()) };
 //! # Ok(()) }
 //! ```
 
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 
 pub mod catalog;
 pub mod client;

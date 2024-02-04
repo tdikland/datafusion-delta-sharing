@@ -1,189 +1,18 @@
 //! Delta table schema
 
-use std::borrow::Borrow;
 use std::fmt::Formatter;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-// pub type DeltaResult<T, E = Error> = std::result::Result<T, E>;
-
-#[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
-pub enum Error {
-    #[error("Arrow error: {0}")]
-    Arrow(#[from] arrow_schema::ArrowError),
-
-    #[error("Generic delta kernel error: {0}")]
-    Generic(String),
-
-    #[error("Generic error: {source}")]
-    GenericError {
-        /// Source error
-        source: Box<dyn std::error::Error + Send + Sync + 'static>,
-    },
-
-    #[error("Arrow error: {0}")]
-    Parquet(#[from] parquet::errors::ParquetError),
-
-    #[error("Error interacting with object store: {0}")]
-    ObjectStore(#[from] object_store::Error),
-
-    #[error("File not found: {0}")]
-    FileNotFound(String),
-
-    #[error("{0}")]
-    MissingColumn(String),
-
-    #[error("Expected column type: {0}")]
-    UnexpectedColumnType(String),
-
-    #[error("Expected is missing: {0}")]
-    MissingData(String),
-
-    #[error("No table version found.")]
-    MissingVersion,
-
-    #[error("Deletion Vector error: {0}")]
-    DeletionVector(String),
-
-    #[error("Schema error: {0}")]
-    Schema(String),
-
-    #[error("Invalid url: {0}")]
-    InvalidUrl(#[from] url::ParseError),
-
-    #[error("Invalid url: {0}")]
-    MalformedJson(#[from] serde_json::Error),
-
-    #[error("No table metadata found in delta log.")]
-    MissingMetadata,
-
-    /// Error returned when the log contains invalid stats JSON.
-    #[error("Invalid JSON in invariant expression, line=`{line}`, err=`{json_err}`")]
-    InvalidInvariantJson {
-        /// JSON error details returned when parsing the invariant expression JSON.
-        json_err: serde_json::error::Error,
-        /// Invariant expression.
-        line: String,
-    },
-
-    #[error("Table metadata is invalid: {0}")]
-    MetadataError(String),
-
-    #[error("Failed to parse value '{0}' as '{1}'")]
-    Parse(String, DataType),
-}
-
-pub trait DataCheck {
-    /// The name of the specific check
-    fn get_name(&self) -> &str;
-    /// The SQL expression to use for the check
-    fn get_expression(&self) -> &str;
-}
-
-// /// Type alias for a top level schema
-// pub type Schema = StructType;
-// /// Schema reference type
-// pub type SchemaRef = Arc<StructType>;
-
-/// A value that can be stored in the metadata of a Delta table schema entity.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-#[serde(untagged)]
-pub enum MetadataValue {
-    /// A number value
-    Number(i32),
-    /// A string value
-    String(String),
-}
-
-impl From<String> for MetadataValue {
-    fn from(value: String) -> Self {
-        Self::String(value)
-    }
-}
-
-impl From<&String> for MetadataValue {
-    fn from(value: &String) -> Self {
-        Self::String(value.clone())
-    }
-}
-
-impl From<i32> for MetadataValue {
-    fn from(value: i32) -> Self {
-        Self::Number(value)
-    }
-}
-
-impl From<Value> for MetadataValue {
-    fn from(value: Value) -> Self {
-        Self::String(value.to_string())
-    }
-}
-
-#[derive(Debug)]
-#[allow(missing_docs)]
-pub enum ColumnMetadataKey {
-    ColumnMappingId,
-    ColumnMappingPhysicalName,
-    GenerationExpression,
-    IdentityStart,
-    IdentityStep,
-    IdentityHighWaterMark,
-    IdentityAllowExplicitInsert,
-    Invariants,
-}
-
-impl AsRef<str> for ColumnMetadataKey {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::ColumnMappingId => "delta.columnMapping.id",
-            Self::ColumnMappingPhysicalName => "delta.columnMapping.physicalName",
-            Self::GenerationExpression => "delta.generationExpression",
-            Self::IdentityAllowExplicitInsert => "delta.identity.allowExplicitInsert",
-            Self::IdentityHighWaterMark => "delta.identity.highWaterMark",
-            Self::IdentityStart => "delta.identity.start",
-            Self::IdentityStep => "delta.identity.step",
-            Self::Invariants => "delta.invariants",
-        }
-    }
-}
-
-/// An invariant for a column that is enforced on all writes to a Delta table.
-#[derive(Eq, PartialEq, Debug, Default, Clone)]
-pub struct Invariant {
-    /// The full path to the field.
-    pub field_name: String,
-    /// The SQL string that must always evaluate to true.
-    pub invariant_sql: String,
-}
-
-impl Invariant {
-    /// Create a new invariant
-    pub fn new(field_name: &str, invariant_sql: &str) -> Self {
-        Self {
-            field_name: field_name.to_string(),
-            invariant_sql: invariant_sql.to_string(),
-        }
-    }
-}
-
-impl DataCheck for Invariant {
-    fn get_name(&self) -> &str {
-        &self.field_name
-    }
-
-    fn get_expression(&self) -> &str {
-        &self.invariant_sql
-    }
-}
+const MAP_ROOT_DEFAULT: &str = "entries";
+const MAP_KEY_DEFAULT: &str = "keys";
+const MAP_VALUE_DEFAULT: &str = "values";
+const LIST_ROOT_DEFAULT: &str = "item";
 
 /// Represents a struct field defined in the Delta table schema.
-// https://github.com/delta-io/delta/blob/master/PROTOCOL.md#Schema-Serialization-Format
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Eq)]
 pub struct StructField {
     /// Name of this (possibly nested) column
     pub name: String,
@@ -193,22 +22,8 @@ pub struct StructField {
     /// Denotes whether this Field can be null
     pub nullable: bool,
     /// A JSON map containing information about this column
-    pub metadata: HashMap<String, MetadataValue>,
+    pub metadata: HashMap<String, String>,
 }
-
-impl Hash for StructField {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-    }
-}
-
-impl Borrow<str> for StructField {
-    fn borrow(&self) -> &str {
-        self.name.as_ref()
-    }
-}
-
-impl Eq for StructField {}
 
 impl StructField {
     /// Creates a new field
@@ -224,18 +39,13 @@ impl StructField {
     /// Creates a new field with metadata
     pub fn with_metadata(
         mut self,
-        metadata: impl IntoIterator<Item = (impl Into<String>, impl Into<MetadataValue>)>,
+        metadata: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     ) -> Self {
         self.metadata = metadata
             .into_iter()
             .map(|(k, v)| (k.into(), v.into()))
             .collect();
         self
-    }
-
-    /// Get the value of a specific metadata key
-    pub fn get_config_value(&self, key: &ColumnMetadataKey) -> Option<&MetadataValue> {
-        self.metadata.get(key.as_ref())
     }
 
     #[inline]
@@ -250,20 +60,6 @@ impl StructField {
         self.nullable
     }
 
-    /// Returns the physical name of the column
-    /// Equals the name if column mapping is not enabled on table
-    pub fn physical_name(&self) -> Result<&str, Error> {
-        // Even on mapping type id the physical name should be there for partitions
-        let phys_name = self.get_config_value(&ColumnMetadataKey::ColumnMappingPhysicalName);
-        match phys_name {
-            None => Ok(&self.name),
-            Some(MetadataValue::String(s)) => Ok(s),
-            Some(MetadataValue::Number(_)) => Err(Error::MetadataError(
-                "Unexpected type for physical name".to_string(),
-            )),
-        }
-    }
-
     #[inline]
     /// Returns the data type of the column
     pub const fn data_type(&self) -> &DataType {
@@ -272,7 +68,7 @@ impl StructField {
 
     #[inline]
     /// Returns the metadata of the column
-    pub const fn metadata(&self) -> &HashMap<String, MetadataValue> {
+    pub const fn metadata(&self) -> &HashMap<String, String> {
         &self.metadata
     }
 }
@@ -300,101 +96,6 @@ impl StructType {
     /// Returns an immutable reference of the fields in the struct
     pub fn fields(&self) -> &Vec<StructField> {
         &self.fields
-    }
-
-    /// Find the index of the column with the given name.
-    pub fn index_of(&self, name: &str) -> Result<usize, Error> {
-        let (idx, _) = self
-            .fields()
-            .iter()
-            .enumerate()
-            .find(|(_, b)| b.name() == name)
-            .ok_or_else(|| {
-                let valid_fields: Vec<_> = self.fields.iter().map(|f| f.name()).collect();
-                Error::Schema(format!(
-                    "Unable to get field named \"{name}\". Valid fields: {valid_fields:?}"
-                ))
-            })?;
-        Ok(idx)
-    }
-
-    /// Returns a reference of a specific [`StructField`] instance selected by name.
-    pub fn field_with_name(&self, name: &str) -> Result<&StructField, Error> {
-        Ok(&self.fields[self.index_of(name)?])
-    }
-
-    /// Get all invariants in the schemas
-    pub fn get_invariants(&self) -> Result<Vec<Invariant>, Error> {
-        let mut remaining_fields: Vec<(String, StructField)> = self
-            .fields()
-            .iter()
-            .map(|field| (field.name.clone(), field.clone()))
-            .collect();
-        let mut invariants: Vec<Invariant> = Vec::new();
-
-        let add_segment = |prefix: &str, segment: &str| -> String {
-            if prefix.is_empty() {
-                segment.to_owned()
-            } else {
-                format!("{prefix}.{segment}")
-            }
-        };
-
-        while let Some((field_path, field)) = remaining_fields.pop() {
-            match field.data_type() {
-                DataType::Struct(inner) => {
-                    remaining_fields.extend(
-                        inner
-                            .fields()
-                            .iter()
-                            .map(|field| {
-                                let new_prefix = add_segment(&field_path, &field.name);
-                                (new_prefix, field.clone())
-                            })
-                            .collect::<Vec<(String, StructField)>>(),
-                    );
-                }
-                DataType::Array(inner) => {
-                    let element_field_name = add_segment(&field_path, "element");
-                    remaining_fields.push((
-                        element_field_name,
-                        StructField::new("".to_string(), inner.element_type.clone(), false),
-                    ));
-                }
-                DataType::Map(inner) => {
-                    let key_field_name = add_segment(&field_path, "key");
-                    remaining_fields.push((
-                        key_field_name,
-                        StructField::new("".to_string(), inner.key_type.clone(), false),
-                    ));
-                    let value_field_name = add_segment(&field_path, "value");
-                    remaining_fields.push((
-                        value_field_name,
-                        StructField::new("".to_string(), inner.value_type.clone(), false),
-                    ));
-                }
-                _ => {}
-            }
-            // JSON format: {"expression": {"expression": "<SQL STRING>"} }
-            if let Some(MetadataValue::String(invariant_json)) =
-                field.metadata.get(ColumnMetadataKey::Invariants.as_ref())
-            {
-                let json: Value = serde_json::from_str(invariant_json).map_err(|e| {
-                    Error::InvalidInvariantJson {
-                        json_err: e,
-                        line: invariant_json.to_string(),
-                    }
-                })?;
-                if let Value::Object(json) = json {
-                    if let Some(Value::Object(expr1)) = json.get("expression") {
-                        if let Some(Value::String(sql)) = expr1.get("expression") {
-                            invariants.push(Invariant::new(&field_path, sql));
-                        }
-                    }
-                }
-            }
-        }
-        Ok(invariants)
     }
 }
 
@@ -701,14 +402,8 @@ impl Display for DataType {
 }
 
 use arrow_schema::{
-    ArrowError, DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema,
-    SchemaRef as ArrowSchemaRef, TimeUnit,
+    ArrowError, DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema, TimeUnit,
 };
-
-const MAP_ROOT_DEFAULT: &str = "entries";
-const MAP_KEY_DEFAULT: &str = "keys";
-const MAP_VALUE_DEFAULT: &str = "values";
-const LIST_ROOT_DEFAULT: &str = "item";
 
 impl TryFrom<&StructType> for ArrowSchema {
     type Error = ArrowError;
@@ -833,164 +528,6 @@ impl TryFrom<&DataType> for ArrowDataType {
             )),
             DataType::Array(a) => Ok(ArrowDataType::List(Arc::new(a.as_ref().try_into()?))),
             DataType::Map(m) => Ok(ArrowDataType::Map(Arc::new(m.as_ref().try_into()?), false)),
-        }
-    }
-}
-
-impl TryFrom<&ArrowSchema> for StructType {
-    type Error = ArrowError;
-
-    fn try_from(arrow_schema: &ArrowSchema) -> Result<Self, ArrowError> {
-        let new_fields: Result<Vec<StructField>, _> = arrow_schema
-            .fields()
-            .iter()
-            .map(|field| field.as_ref().try_into())
-            .collect();
-        Ok(StructType::new(new_fields?))
-    }
-}
-
-impl TryFrom<ArrowSchemaRef> for StructType {
-    type Error = ArrowError;
-
-    fn try_from(arrow_schema: ArrowSchemaRef) -> Result<Self, ArrowError> {
-        arrow_schema.as_ref().try_into()
-    }
-}
-
-impl TryFrom<&ArrowField> for StructField {
-    type Error = ArrowError;
-
-    fn try_from(arrow_field: &ArrowField) -> Result<Self, ArrowError> {
-        Ok(StructField::new(
-            arrow_field.name().clone(),
-            DataType::try_from(arrow_field.data_type())?,
-            arrow_field.is_nullable(),
-        )
-        .with_metadata(arrow_field.metadata().iter().map(|(k, v)| (k.clone(), v))))
-    }
-}
-
-impl TryFrom<&ArrowDataType> for DataType {
-    type Error = ArrowError;
-
-    fn try_from(arrow_datatype: &ArrowDataType) -> Result<Self, ArrowError> {
-        match arrow_datatype {
-            ArrowDataType::Utf8 => Ok(DataType::Primitive(PrimitiveType::String)),
-            ArrowDataType::LargeUtf8 => Ok(DataType::Primitive(PrimitiveType::String)),
-            ArrowDataType::Int64 => Ok(DataType::Primitive(PrimitiveType::Long)), // undocumented type
-            ArrowDataType::Int32 => Ok(DataType::Primitive(PrimitiveType::Integer)),
-            ArrowDataType::Int16 => Ok(DataType::Primitive(PrimitiveType::Short)),
-            ArrowDataType::Int8 => Ok(DataType::Primitive(PrimitiveType::Byte)),
-            ArrowDataType::UInt64 => Ok(DataType::Primitive(PrimitiveType::Long)), // undocumented type
-            ArrowDataType::UInt32 => Ok(DataType::Primitive(PrimitiveType::Integer)),
-            ArrowDataType::UInt16 => Ok(DataType::Primitive(PrimitiveType::Short)),
-            ArrowDataType::UInt8 => Ok(DataType::Primitive(PrimitiveType::Byte)),
-            ArrowDataType::Float32 => Ok(DataType::Primitive(PrimitiveType::Float)),
-            ArrowDataType::Float64 => Ok(DataType::Primitive(PrimitiveType::Double)),
-            ArrowDataType::Boolean => Ok(DataType::Primitive(PrimitiveType::Boolean)),
-            ArrowDataType::Binary => Ok(DataType::Primitive(PrimitiveType::Binary)),
-            ArrowDataType::FixedSizeBinary(_) => Ok(DataType::Primitive(PrimitiveType::Binary)),
-            ArrowDataType::LargeBinary => Ok(DataType::Primitive(PrimitiveType::Binary)),
-            ArrowDataType::Decimal128(p, s) => {
-                Ok(DataType::Primitive(PrimitiveType::Decimal(*p, *s)))
-            }
-            ArrowDataType::Decimal256(p, s) => {
-                Ok(DataType::Primitive(PrimitiveType::Decimal(*p, *s)))
-            }
-            ArrowDataType::Date32 => Ok(DataType::Primitive(PrimitiveType::Date)),
-            ArrowDataType::Date64 => Ok(DataType::Primitive(PrimitiveType::Date)),
-            ArrowDataType::Timestamp(TimeUnit::Microsecond, None) => {
-                Ok(DataType::Primitive(PrimitiveType::Timestamp))
-            }
-            ArrowDataType::Timestamp(TimeUnit::Microsecond, Some(tz))
-                if tz.eq_ignore_ascii_case("utc") =>
-            {
-                Ok(DataType::Primitive(PrimitiveType::Timestamp))
-            }
-            ArrowDataType::Struct(fields) => {
-                let converted_fields: Result<Vec<StructField>, _> = fields
-                    .iter()
-                    .map(|field| field.as_ref().try_into())
-                    .collect();
-                Ok(DataType::Struct(Box::new(StructType::new(
-                    converted_fields?,
-                ))))
-            }
-            ArrowDataType::List(field) => Ok(DataType::Array(Box::new(ArrayType::new(
-                (*field).data_type().try_into()?,
-                (*field).is_nullable(),
-            )))),
-            ArrowDataType::LargeList(field) => Ok(DataType::Array(Box::new(ArrayType::new(
-                (*field).data_type().try_into()?,
-                (*field).is_nullable(),
-            )))),
-            ArrowDataType::FixedSizeList(field, _) => Ok(DataType::Array(Box::new(
-                ArrayType::new((*field).data_type().try_into()?, (*field).is_nullable()),
-            ))),
-            ArrowDataType::Map(field, _) => {
-                if let ArrowDataType::Struct(struct_fields) = field.data_type() {
-                    let key_type = struct_fields[0].data_type().try_into()?;
-                    let value_type = struct_fields[1].data_type().try_into()?;
-                    let value_type_nullable = struct_fields[1].is_nullable();
-                    Ok(DataType::Map(Box::new(MapType::new(
-                        key_type,
-                        value_type,
-                        value_type_nullable,
-                    ))))
-                } else {
-                    panic!("DataType::Map should contain a struct field child");
-                }
-            }
-            s => Err(ArrowError::SchemaError(format!(
-                "Invalid data type for Delta Lake: {s}"
-            ))),
-        }
-    }
-}
-
-fn _max_min_schema_for_fields(dest: &mut Vec<ArrowField>, f: &ArrowField) {
-    match f.data_type() {
-        ArrowDataType::Struct(struct_fields) => {
-            let mut child_dest = Vec::new();
-
-            for f in struct_fields {
-                _max_min_schema_for_fields(&mut child_dest, f);
-            }
-
-            dest.push(ArrowField::new(
-                f.name(),
-                ArrowDataType::Struct(child_dest.into()),
-                true,
-            ));
-        }
-        // don't compute min or max for list, map or binary types
-        ArrowDataType::List(_) | ArrowDataType::Map(_, _) | ArrowDataType::Binary => { /* noop */ }
-        _ => {
-            let f = f.clone();
-            dest.push(f);
-        }
-    }
-}
-
-fn _null_count_schema_for_fields(dest: &mut Vec<ArrowField>, f: &ArrowField) {
-    match f.data_type() {
-        ArrowDataType::Struct(struct_fields) => {
-            let mut child_dest = Vec::new();
-
-            for f in struct_fields {
-                _null_count_schema_for_fields(&mut child_dest, f);
-            }
-
-            dest.push(ArrowField::new(
-                f.name(),
-                ArrowDataType::Struct(child_dest.into()),
-                true,
-            ));
-        }
-        _ => {
-            let f = ArrowField::new(f.name(), ArrowDataType::Int64, true);
-            dest.push(f);
         }
     }
 }
