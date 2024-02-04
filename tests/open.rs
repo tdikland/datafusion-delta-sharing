@@ -1,6 +1,7 @@
 // use datafusion_delta_sharing::{
-//     client::{profile::DeltaSharingProfile, DeltaSharingClient},
+//     client::DeltaSharingClient,
 //     securable::{Schema, Share, Table},
+//     Profile,
 // };
 
 // use tracing_test::traced_test;
@@ -8,12 +9,13 @@
 // #[traced_test]
 // #[tokio::test]
 // async fn list_shares() {
-//     let profile = DeltaSharingProfile::from_path("./tests/open-datasets.share");
+//     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
 //     let client = DeltaSharingClient::new(profile);
 
-//     let shares = client.list_shares().await.unwrap();
+//     let table: Table = "delta_sharing.default.delta_sharing".parse().unwrap();
+//     let shares = client.get_table_data(&table, None, None).await.unwrap();
 
-//     assert_eq!(shares, vec![Share::new("delta_sharing", None)]);
+//     assert!(true)
 // }
 
 // #[traced_test]

@@ -82,7 +82,7 @@ impl Display for DeltaSharingErrorKind {
             Self::ParseSecurableError => write!(f, "ParseSecurableError"),
             Self::ParseResponseError => write!(f, "ParseResponseError"),
             Self::RequestError => write!(f, "RequestError"),
-            Self::ClientError => write!(f, "ClientError"),
+            Self::ClientError => write!(f, "SHARING_CLIENT_ERROR"),
             Self::ServerError => write!(f, "ServerError"),
             Self::Other => write!(f, "Other"),
         }

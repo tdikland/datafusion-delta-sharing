@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use reqwest::{Client, Method, Response, Url};
-use serde_json::{json, Deserializer};
+use serde_json::Deserializer;
 use tracing::{debug, info, trace, warn};
 
 use crate::{
@@ -436,6 +436,7 @@ fn parse_table_version(response: &Response) -> Result<u64, DeltaSharingError> {
 mod test {
     use chrono::{TimeZone, Utc};
     use httpmock::MockServer;
+    use serde_json::json;
     use tracing_test::traced_test;
 
     use crate::profile::ProfileType;
@@ -787,5 +788,27 @@ mod test {
 
         mock.assert();
         assert_eq!(result.len(), 2);
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn get_table_data_not_found() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("POST")
+                .path("/shares/my_share/schemas/my_schema/tables/fake_table/query");
+            then.status(404)
+                .header("content-type", "application/json")
+                .header("charset", "utf-8")
+                .body(r#"{"errorCode": "RESOURCE_DOES_NOT_EXIST", "message": "[Share/Schema/Table] 'my_share/my_schema/fake_table' does not exist, please contact your share provider for further information."}"#);
+        });
+        let client = build_sharing_client(&server);
+        let table = "my_share.my_schema.fake_table".parse::<Table>().unwrap();
+
+        let result = client.get_table_data(&table, None, None).await;
+
+        mock.assert();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().starts_with("[SHARING_CLIENT_ERROR] [RESOURCE_DOES_NOT_EXIST] [Share/Schema/Table] 'my_share/my_schema/fake_table' does not exist"));
     }
 }

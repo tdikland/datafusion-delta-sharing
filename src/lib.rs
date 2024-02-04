@@ -35,7 +35,7 @@
 #![allow(missing_docs)]
 
 pub mod catalog;
-mod client;
+pub mod client;
 mod datasource;
 pub mod error;
 pub mod profile;
