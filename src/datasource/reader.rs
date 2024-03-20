@@ -37,6 +37,8 @@ impl SignedParquetFileReader {
             std::ops::Bound::Unbounded => format!("bytes={}-", first),
         };
 
+        tracing::debug!(range = ?range, url = %url, "fetching parquet range");
+
         self.client
             .request(Method::GET, url)
             .header(RANGE, range_string)

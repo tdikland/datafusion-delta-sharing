@@ -26,4 +26,7 @@ mod scan;
 mod schema;
 mod table;
 
+mod kernel_scan;
+mod mem_client;
+
 pub use table::{DeltaSharingTable, DeltaSharingTableBuilder};

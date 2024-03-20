@@ -67,7 +67,9 @@ impl DeltaSharingClient {
 
         if status.is_success() {
             info!("list shares status: {:?}", status);
-            Ok(response.json::<ListSharesResponse>().await?)
+            let res = Ok(response.json::<ListSharesResponse>().await?);
+            info!(res = ?res, "shares");
+            res
         } else {
             warn!("list shares status: {:?}", status);
             let err = response.json::<ErrorResponse>().await?;
@@ -218,7 +220,9 @@ impl DeltaSharingClient {
 
         if status.is_success() {
             info!("list tables in share status: {:?}", status);
-            Ok(response.json::<ListTablesResponse>().await?)
+            let res = Ok(response.json::<ListTablesResponse>().await?);
+            info!(res = ?res, "tables");
+            res
         } else {
             warn!("list tables in share status: {:?}", status);
             let err = response.json::<ErrorResponse>().await?;
@@ -326,7 +330,7 @@ impl DeltaSharingClient {
         limit: Option<u32>,
     ) -> Result<Vec<File>, DeltaSharingError> {
         let url = url_for_table(self.profile.endpoint().clone(), table, Some("query"));
-        trace!("requesting: {}", url);
+        info!("requesting: {}", url);
 
         let mut body: HashMap<String, String> = HashMap::new();
         if let Some(pred) = predicates {
@@ -335,7 +339,7 @@ impl DeltaSharingClient {
         if let Some(lim) = limit {
             body.insert("limitHint".to_string(), lim.to_string());
         }
-        debug!("body: {:?}", body);
+        info!("body: {:?}", body);
 
         let response = self
             .client
@@ -356,6 +360,10 @@ impl DeltaSharingClient {
             }
         } else {
             let full = response.bytes().await?;
+
+            let text = unsafe { String::from_utf8_unchecked(full.as_ref().to_vec()) };
+            info!(text = %text, "full text");
+
             let mut lines = Deserializer::from_slice(&full).into_iter::<ParquetResponse>();
 
             let _ = lines
@@ -371,6 +379,7 @@ impl DeltaSharingClient {
 
             let mut files = vec![];
             for line in lines {
+                info!(line=?line, "processing line");
                 let file = line.ok().and_then(ParquetResponse::to_file);
                 if let Some(f) = file {
                     files.push(f);

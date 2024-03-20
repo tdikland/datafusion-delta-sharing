@@ -1,0 +1,5 @@
+{
+  "shareCredentialsVersion": 1,
+  "endpoint": "http://127.0.0.1:3000",
+  "bearerToken": "boo"
+}

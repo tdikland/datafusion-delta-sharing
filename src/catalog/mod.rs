@@ -30,9 +30,10 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use datafusion::{
-    catalog::{schema::SchemaProvider, CatalogList, CatalogProvider},
+    catalog::{schema::SchemaProvider, CatalogList, CatalogProvider, CatalogProviderList},
     datasource::TableProvider,
 };
+use tracing::info;
 
 use crate::{
     client::DeltaSharingClient,
@@ -71,6 +72,7 @@ impl DeltaSharingCatalogList {
     pub async fn try_new(profile: Profile) -> Result<Self, DeltaSharingError> {
         let client = DeltaSharingClient::new(profile.clone());
         let shares = client.list_shares().await?;
+        info!("Found {} shares", shares.len());
 
         let mut share_map: HashMap<String, Arc<dyn CatalogProvider>> =
             HashMap::with_capacity(shares.len());
@@ -85,7 +87,7 @@ impl DeltaSharingCatalogList {
     }
 }
 
-impl CatalogList for DeltaSharingCatalogList {
+impl CatalogProviderList for DeltaSharingCatalogList {
     fn as_any(&self) -> &dyn Any {
         self
     }
