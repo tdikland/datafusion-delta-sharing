@@ -22,17 +22,19 @@
 //! # Ok(()) }
 //! ```
 
-#![warn(missing_docs)]
+// #![warn(missing_docs)]
 
-pub mod catalog;
+// pub mod catalog;
 pub mod client;
-pub mod datasource;
+// pub mod datasource;
 pub mod error;
 pub mod profile;
 pub mod securable;
 
-pub mod delta_client;
+pub mod kernel;
 
-pub use datasource::DeltaSharingTable;
+// pub mod delta_client;
+
+// pub use datasource::DeltaSharingTable;
 pub use error::{DeltaSharingError, DeltaSharingErrorKind};
 pub use profile::Profile;

@@ -30,7 +30,7 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use datafusion::{
-    catalog::{schema::SchemaProvider, CatalogList, CatalogProvider, CatalogProviderList},
+    catalog::{schema::SchemaProvider, CatalogProvider, CatalogProviderList},
     datasource::TableProvider,
 };
 use tracing::info;

@@ -185,6 +185,8 @@ fn build_partitioned_file(
     Ok(partitioned_file)
 }
 
+// let scan = table::new(&engine).snapshot(Version::Latest).scan(...)
+
 /// Deserialize partition values from a file into a vector of ScalarValue
 /// The partition values are stored in a HashMap with the column name as key and the value as value
 /// The partition schema is used to determine the data type of the partition values

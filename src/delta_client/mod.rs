@@ -18,9 +18,14 @@ use crate::{
     securable::{Schema, Share, Table},
 };
 
+use self::response::ListSharesResponse;
+
 const QUERY_PARAM_VERSION_TIMESTAMP: &str = "startingTimestamp";
 
+mod config;
 pub mod response;
+
+pub struct Pagination;
 
 /// Delta Sharing client
 #[derive(Debug, Clone)]
@@ -41,6 +46,31 @@ impl DeltaSharingDeltaClient {
     /// Retrieve the profile of the client
     pub fn profile(&self) -> &Profile {
         &self.profile
+    }
+
+    pub async fn list_shares_paginated(
+        &self,
+        pagination: &Pagination,
+    ) -> Result<ListSharesResponse, DeltaSharingError> {
+        tracing::trace!("get");
+
+        // construct URL for server endpoint
+        // profile.get_url_for_table -> nah
+        // config.list_shares_url ? -> super nah (how would you pass prefix)
+
+        // insert user-agent header
+        // insert other metadata headers?
+
+        // insert capability header
+
+        // insert authorization header
+        // profile.get_token().await -> add as bearer
+
+        // OPTIONAL: detect response format?
+        
+
+
+        todo!()
     }
 
     /// Retrieve the data of a table

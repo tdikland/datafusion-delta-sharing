@@ -21,7 +21,7 @@ datafusion = { version = "36.0.0", features = ["serde"] }
 futures = "0.3.30"
 object_store = { version = "0.9.0", features = ["http"] }
 parquet = { version = "50.0.0", features = ["async"] }
-reqwest = { version = "0.11.23", features = ["json"] }
+reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
 tracing = "0.1.40"
@@ -32,6 +32,7 @@ delta-kernel = { git = "https://github.com/tdikland/delta-kernel-rs.git", rev = 
 ], package = "deltakernel" }
 pin-project = "1.1.5"
 pin-project-lite = "0.2.13"
+http = "1.1.0"
 
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["full"] }

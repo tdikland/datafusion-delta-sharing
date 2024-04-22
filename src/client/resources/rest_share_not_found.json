@@ -1,0 +1,4 @@
+{
+    "errorCode": "RESOURCE_DOES_NOT_EXIST",
+    "message": "share 'foo' not found"
+}

@@ -19,6 +19,10 @@ use futures::Stream;
 use pin_project_lite::pin_project;
 use tracing::debug;
 
+pub struct DeltaScanBuilder {
+    
+}
+
 pub struct DeltaScan {
     projected_schema: SchemaRef,
     inner: Scan,
@@ -74,21 +78,20 @@ impl ExecutionPlan for DeltaScan {
 
     fn with_new_children(
         self: Arc<Self>,
-        children: Vec<Arc<dyn ExecutionPlan>>,
+        _children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         Ok(self)
     }
 
     fn execute(
         &self,
-        partition: usize,
-        context: Arc<datafusion::execution::TaskContext>,
+        _partition: usize,
+        _context: Arc<datafusion::execution::TaskContext>,
     ) -> Result<datafusion::execution::SendableRecordBatchStream> {
         let schema = self.projected_schema.clone();
-        let mut result = self.inner.execute(&*self.engine).unwrap();
+        let result = self.inner.execute(&*self.engine).unwrap();
 
         let records = result.into_iter().map(|res| {
-            // debug!(res = ?res.raw_data, "received record batch from delta sharing");
             let batch: RecordBatch = res
                 .raw_data
                 .unwrap()
@@ -103,14 +106,13 @@ impl ExecutionPlan for DeltaScan {
             };
             Ok(filtered)
         });
+
         let stream = futures::stream::iter(records);
         let delta_stream = DeltaRecordBatchStream::new(stream, schema);
 
         Ok(Box::pin(delta_stream))
     }
 }
-
-
 
 pin_project! {
     struct DeltaRecordBatchStream<S> {

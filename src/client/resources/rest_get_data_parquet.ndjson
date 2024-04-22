@@ -1,0 +1,4 @@
+{"protocol":{"minReaderVersion":1}}
+{"metaData":{"id":"table_id","format":{"provider":"parquet"},"schemaString":"schema_as_string","partitionColumns":["date"]}}
+{"file":{"url":"https://example.com/path1?signed=true","id":"file_id_1","partitionValues":{"date":"2021-04-28"},"size":573,"stats":"stats_as_string_1"}}
+{"file":{"url":"https://example.com/path2?signed=true","id":"file_id_2","partitionValues":{"date":"2021-04-28"},"size":573,"stats":"stats_as_string_2"}}

@@ -1,0 +1,16 @@
+{
+    "items": [
+        {
+            "name": "product",
+            "id": "edacc4a7-6600-4fbb-85f3-a62a5ce6761f"
+        },
+        {
+            "name": "sales",
+            "id": "3e979c79-6399-4dac-bcf8-54e268f48515"
+        },
+        {
+            "name": "finance",
+            "id": "f902aeb2-2466-495b-a1d6-22122f822a43"
+        }
+    ]
+}

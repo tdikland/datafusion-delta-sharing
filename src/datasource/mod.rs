@@ -26,6 +26,7 @@ mod scan;
 mod schema;
 mod table;
 
+mod engine;
 mod kernel_scan;
 mod mem_client;
 

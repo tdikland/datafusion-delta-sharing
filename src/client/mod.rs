@@ -3,7 +3,10 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use reqwest::{Client, Method, Response, Url};
+use reqwest::{
+    header::{HeaderMap, AUTHORIZATION, USER_AGENT},
+    Client, Method, RequestBuilder, Response, Url,
+};
 use serde_json::Deserializer;
 use tracing::{debug, info, trace, warn};
 
@@ -17,14 +20,26 @@ use crate::{
 use {
     action::{File, Metadata, Protocol},
     pagination::{Pagination, PaginationExt},
-    response::{
-        ErrorResponse, ListSchemasResponse, ListSharesResponse, ListTablesResponse, ParquetResponse,
-    },
+    response::{ErrorResponse, ListSchemasResponse, ListSharesResponse, ListTablesResponse},
 };
 
 pub mod action;
+mod config;
+pub mod error;
 pub mod pagination;
 pub mod response;
+pub mod rest;
+
+/// Delta Sharing client
+///
+/// client should be able to read parquet format into the raw actions
+/// client should be able to read the delta format
+///
+/// Config struct to specify what the client can read?
+///
+/// Two register solution:
+/// - base client that reads the protocol
+/// - batteries included client that uses Delta Kernel to interpret the files into data.
 
 const QUERY_PARAM_VERSION_TIMESTAMP: &str = "startingTimestamp";
 
@@ -35,43 +50,40 @@ pub struct DeltaSharingClient {
     profile: Profile,
 }
 
+/// Implementation of the REST interface with the Delta Sharing server.
 impl DeltaSharingClient {
-    /// Create a new Delta Sharing client
-    pub fn new(profile: Profile) -> Self {
-        Self {
-            client: Client::new(),
-            profile,
-        }
-    }
-
-    /// Retrieve the profile of the client
-    pub fn profile(&self) -> &Profile {
-        &self.profile
-    }
-
     /// List shares with pagination
     pub async fn list_shares_paginated(
         &self,
         pagination: &Pagination,
     ) -> Result<ListSharesResponse, DeltaSharingError> {
-        let mut url = self.profile.endpoint().clone();
-        url.path_segments_mut()
-            .expect("valid base")
-            .pop_if_empty()
-            .push("shares");
-        url.set_pagination(pagination);
-        trace!("URL: {}", url);
+        let endpoint = self
+            .profile
+            .prefix()
+            .join(&format!("/shares"))
+            .map_err(|e| {
+                DeltaSharingError::other(format!("failed to build endpoint URL. Reason: {e}"))
+            })?
+            .with_pagination(pagination);
+        tracing::trace!(endpoint = ?endpoint, "construct list shares URL");
 
-        let response = self.request(Method::GET, url).await?;
+        let request = self
+            .client
+            .get(endpoint)
+            .authorize_with_profile(&self.profile)
+            .await?;
+        let response = request.send().await?;
         let status = response.status();
+        tracing::info!("list shares status: {:?}", status);
 
         if status.is_success() {
-            info!("list shares status: {:?}", status);
-            let res = Ok(response.json::<ListSharesResponse>().await?);
-            info!(res = ?res, "shares");
-            res
+            let res = response.json::<ListSharesResponse>().await.map_err(|e| {
+                tracing::warn!(err = ?e, "malformed list shares response");
+                e
+            })?;
+            tracing::debug!(response = ?res, "succesfully parsed list shares response");
+            Ok(res)
         } else {
-            warn!("list shares status: {:?}", status);
             let err = response.json::<ErrorResponse>().await?;
             if status.is_client_error() {
                 Err(DeltaSharingError::client(err.to_string()))
@@ -81,27 +93,18 @@ impl DeltaSharingClient {
         }
     }
 
-    /// List all available shares
-    pub async fn list_shares(&self) -> Result<Vec<Share>, DeltaSharingError> {
-        let mut shares = vec![];
-        let mut pagination = Pagination::default();
-        loop {
-            let response = self.list_shares_paginated(&pagination).await?;
-            pagination.set_next_token(response.next_page_token().map(ToOwned::to_owned));
-            shares.extend(response);
-            if pagination.is_finished() {
-                break;
-            }
-        }
-        Ok(shares)
-    }
-
     /// Retrieve a share
-    pub async fn get_share(&self, share: &Share) -> Result<Share, DeltaSharingError> {
-        let url = url_for_share(self.profile.endpoint().clone(), share, None);
-        trace!("URL: {}", url);
+    pub async fn get_share(&self, share_name: &str) -> Result<Share, DeltaSharingError> {
+        let endpoint = self
+            .profile
+            .prefix()
+            .join(&format!("/shares/{share_name}"))
+            .map_err(|e| {
+                DeltaSharingError::other(format!("failed to build endpoint URL. Reason: {e}"))
+            })?;
+        tracing::trace!(endpoint = ?endpoint, "construct list shares URL");
 
-        let response = self.request(Method::GET, url).await?;
+        let response = self.request(Method::GET, endpoint).await?;
         let status = response.status();
 
         if status.is_success() {
@@ -125,18 +128,28 @@ impl DeltaSharingClient {
         share: &Share,
         pagination: &Pagination,
     ) -> Result<ListSchemasResponse, DeltaSharingError> {
-        let mut url = url_for_share(self.profile.endpoint().clone(), share, Some("schemas"));
-        url.set_pagination(pagination);
-        trace!("URL: {}", url);
+        let endpoint = self
+            .profile
+            .prefix()
+            .join(&format!("/shares/{}/schemas", share.name()))
+            .map_err(|e| {
+                DeltaSharingError::other(format!("failed to build endpoint URL. Reason: {e}"))
+            })?
+            .with_pagination(pagination);
+        tracing::debug!(endpoint = ?endpoint, "construct list shares URL");
 
-        let response = self.request(Method::GET, url).await?;
+        let request = self
+            .client
+            .get(endpoint)
+            .authorize_with_profile(&self.profile)
+            .await?;
+        let response = request.send().await?;
         let status = response.status();
+        tracing::info!(status_code = %status, "list schemas");
 
         if status.is_success() {
-            info!("list schemas status: {:?}", status);
             Ok(response.json::<ListSchemasResponse>().await?)
         } else {
-            warn!("list schemas status: {:?}", status);
             let err = response.json::<ErrorResponse>().await?;
             if status.is_client_error() {
                 Err(DeltaSharingError::client(err.to_string()))
@@ -146,29 +159,13 @@ impl DeltaSharingClient {
         }
     }
 
-    /// List all available schemas
-    pub async fn list_schemas(&self, share: &Share) -> Result<Vec<Schema>, DeltaSharingError> {
-        let mut schemas = vec![];
-        let mut pagination = Pagination::default();
-        loop {
-            let response = self.list_schemas_paginated(share, &pagination).await?;
-            pagination.set_next_token(response.next_page_token().map(ToOwned::to_owned));
-            schemas.extend(response);
-            if pagination.is_finished() {
-                break;
-            }
-        }
-        Ok(schemas)
-    }
-
-    /// List tables in schema with pagination
     pub async fn list_tables_in_schema_paginated(
         &self,
         schema: &Schema,
         pagination: &Pagination,
     ) -> Result<ListTablesResponse, DeltaSharingError> {
         let mut url = url_for_schema(self.profile.endpoint().clone(), schema, Some("tables"));
-        url.set_pagination(pagination);
+        url = url.with_pagination(pagination);
         trace!("URL: {}", url);
 
         let response = self.request(Method::GET, url).await?;
@@ -188,23 +185,6 @@ impl DeltaSharingClient {
         }
     }
 
-    /// List all available tables in schema
-    pub async fn list_tables(&self, schema: &Schema) -> Result<Vec<Table>, DeltaSharingError> {
-        let mut tables = vec![];
-        let mut pagination = Pagination::default();
-        loop {
-            let response = self
-                .list_tables_in_schema_paginated(schema, &pagination)
-                .await?;
-            pagination.set_next_token(response.next_page_token().map(ToOwned::to_owned));
-            tables.extend(response);
-            if pagination.is_finished() {
-                break;
-            }
-        }
-        Ok(tables)
-    }
-
     /// List tables in share with pagination
     async fn list_tables_in_share_paginated(
         &self,
@@ -212,7 +192,7 @@ impl DeltaSharingClient {
         pagination: &Pagination,
     ) -> Result<ListTablesResponse, DeltaSharingError> {
         let mut url = url_for_share(self.profile.endpoint().clone(), share, Some("all-tables"));
-        url.set_pagination(pagination);
+        url = url.with_pagination(pagination);
         trace!("URL: {}", url);
 
         let response = self.request(Method::GET, url).await?;
@@ -232,23 +212,6 @@ impl DeltaSharingClient {
                 Err(DeltaSharingError::server(err.to_string()))
             }
         }
-    }
-
-    /// List all available tables in share
-    pub async fn list_all_tables(&self, share: &Share) -> Result<Vec<Table>, DeltaSharingError> {
-        let mut tables = vec![];
-        let mut pagination = Pagination::default();
-        loop {
-            let response = self
-                .list_tables_in_share_paginated(share, &pagination)
-                .await?;
-            pagination.set_next_token(response.next_page_token().map(ToOwned::to_owned));
-            tables.extend(response);
-            if pagination.is_finished() {
-                break;
-            }
-        }
-        Ok(tables)
     }
 
     /// Retrieve the version of a table
@@ -294,32 +257,34 @@ impl DeltaSharingClient {
         let response = self.request(Method::GET, url).await?;
         let status = response.status();
 
-        if !status.is_success() {
-            warn!("get table metadata status: {:?}", status);
-            let res = response.json::<ErrorResponse>().await.unwrap();
-            if status.is_client_error() {
-                Err(DeltaSharingError::client(res.to_string()))
-            } else {
-                Err(DeltaSharingError::server(res.to_string()))
-            }
-        } else {
-            info!("get table metadata status: {:?}", status);
-            let full = response.bytes().await?;
-            let mut lines = Deserializer::from_slice(&full).into_iter::<ParquetResponse>();
+        todo!()
 
-            let protocol = lines
-                .next()
-                .and_then(Result::ok)
-                .and_then(ParquetResponse::to_protocol)
-                .ok_or(DeltaSharingError::parse_response("parsing protocol failed"))?;
-            let metadata = lines
-                .next()
-                .and_then(Result::ok)
-                .and_then(ParquetResponse::to_metadata)
-                .ok_or(DeltaSharingError::parse_response("parsing metadata failed"))?;
+        // if !status.is_success() {
+        //     warn!("get table metadata status: {:?}", status);
+        //     let res = response.json::<ErrorResponse>().await.unwrap();
+        //     if status.is_client_error() {
+        //         Err(DeltaSharingError::client(res.to_string()))
+        //     } else {
+        //         Err(DeltaSharingError::server(res.to_string()))
+        //     }
+        // } else {
+        //     info!("get table metadata status: {:?}", status);
+        //     let full = response.bytes().await?;
+        //     let mut lines = Deserializer::from_slice(&full).into_iter::<ParquetResponse>();
 
-            Ok((protocol, metadata))
-        }
+        //     let protocol = lines
+        //         .next()
+        //         .and_then(Result::ok)
+        //         .and_then(ParquetResponse::to_protocol)
+        //         .ok_or(DeltaSharingError::parse_response("parsing protocol failed"))?;
+        //     let metadata = lines
+        //         .next()
+        //         .and_then(Result::ok)
+        //         .and_then(ParquetResponse::to_metadata)
+        //         .ok_or(DeltaSharingError::parse_response("parsing metadata failed"))?;
+
+        //     Ok((protocol, metadata))
+        // }
     }
 
     /// Retrieve the data of a table
@@ -345,7 +310,8 @@ impl DeltaSharingClient {
             .client
             .request(Method::POST, url)
             .json(&body)
-            .authorize_with_profile(&self.profile)?
+            .authorize_with_profile(&self.profile)
+            .await?
             .send()
             .await?;
         let status = response.status();
@@ -364,31 +330,251 @@ impl DeltaSharingClient {
             let text = unsafe { String::from_utf8_unchecked(full.as_ref().to_vec()) };
             info!(text = %text, "full text");
 
-            let mut lines = Deserializer::from_slice(&full).into_iter::<ParquetResponse>();
+            todo!()
+            // let mut lines = Deserializer::from_slice(&full).into_iter::<ParquetResponse>();
 
-            let _ = lines
-                .next()
-                .and_then(Result::ok)
-                .and_then(ParquetResponse::to_protocol)
-                .ok_or(DeltaSharingError::parse_response("parsing protocol failed"))?;
-            let _ = lines
-                .next()
-                .and_then(Result::ok)
-                .and_then(ParquetResponse::to_metadata)
-                .ok_or(DeltaSharingError::parse_response("parsing metadata failed"))?;
+            // let _ = lines
+            //     .next()
+            //     .and_then(Result::ok)
+            //     .and_then(ParquetResponse::to_protocol)
+            //     .ok_or(DeltaSharingError::parse_response("parsing protocol failed"))?;
+            // let _ = lines
+            //     .next()
+            //     .and_then(Result::ok)
+            //     .and_then(ParquetResponse::to_metadata)
+            //     .ok_or(DeltaSharingError::parse_response("parsing metadata failed"))?;
 
-            let mut files = vec![];
-            for line in lines {
-                info!(line=?line, "processing line");
-                let file = line.ok().and_then(ParquetResponse::to_file);
-                if let Some(f) = file {
-                    files.push(f);
-                }
-            }
+            // let mut files = vec![];
+            // for line in lines {
+            //     info!(line=?line, "processing line");
+            //     let file = line.ok().and_then(ParquetResponse::to_file);
+            //     if let Some(f) = file {
+            //         files.push(f);
+            //     }
+            // }
 
-            Ok(files)
+            // Ok(files)
         }
     }
+}
+
+impl DeltaSharingClient {
+    /// Create a new Delta Sharing client
+    pub fn new(profile: Profile) -> Self {
+        Self {
+            client: Client::new(),
+            profile,
+        }
+    }
+
+    /// Retrieve the profile of the client
+    pub fn profile(&self) -> &Profile {
+        &self.profile
+    }
+
+    /// List all available shares
+    pub async fn list_shares(&self) -> Result<Vec<Share>, DeltaSharingError> {
+        let mut shares = vec![];
+        let mut pagination = Pagination::default();
+        loop {
+            let response = self.list_shares_paginated(&pagination).await?;
+            pagination.next_token(response.next_page_token().map(ToOwned::to_owned));
+            shares.extend(response);
+            if pagination.is_finished() {
+                break;
+            }
+        }
+        Ok(shares)
+    }
+
+    /// List all available schemas
+    pub async fn list_schemas(&self, share: &Share) -> Result<Vec<Schema>, DeltaSharingError> {
+        let mut schemas = vec![];
+        let mut pagination = Pagination::default();
+        loop {
+            let response = self.list_schemas_paginated(share, &pagination).await?;
+            pagination.next_token(response.next_page_token().map(ToOwned::to_owned));
+            schemas.extend(response);
+            if pagination.is_finished() {
+                break;
+            }
+        }
+        Ok(schemas)
+    }
+
+    /// List all available tables in schema
+    pub async fn list_tables(&self, schema: &Schema) -> Result<Vec<Table>, DeltaSharingError> {
+        let mut tables = vec![];
+        let mut pagination = Pagination::default();
+        loop {
+            let response = self
+                .list_tables_in_schema_paginated(schema, &pagination)
+                .await?;
+            pagination.next_token(response.next_page_token().map(ToOwned::to_owned));
+            tables.extend(response);
+            if pagination.is_finished() {
+                break;
+            }
+        }
+        Ok(tables)
+    }
+
+    /// List all available tables in share
+    pub async fn list_all_tables(&self, share: &Share) -> Result<Vec<Table>, DeltaSharingError> {
+        let mut tables = vec![];
+        let mut pagination = Pagination::default();
+        loop {
+            let response = self
+                .list_tables_in_share_paginated(share, &pagination)
+                .await?;
+            pagination.next_token(response.next_page_token().map(ToOwned::to_owned));
+            tables.extend(response);
+            if pagination.is_finished() {
+                break;
+            }
+        }
+        Ok(tables)
+    }
+
+    /// Retrieve the version of a table
+    // pub async fn get_table_version(
+    //     &self,
+    //     table: &Table,
+    //     starting_timestamp: Option<DateTime<Utc>>,
+    // ) -> Result<u64, DeltaSharingError> {
+    //     let mut url = url_for_table(self.profile.endpoint().clone(), table, Some("version"));
+    //     if let Some(ts) = starting_timestamp {
+    //         url.query_pairs_mut().append_pair(
+    //             QUERY_PARAM_VERSION_TIMESTAMP,
+    //             &ts.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+    //         );
+    //     }
+    //     trace!("URL: {}", url);
+
+    //     let response = self.request(Method::GET, url).await?;
+    //     let status = response.status();
+
+    //     if status.is_success() {
+    //         info!("get table version status: {:?}", status);
+    //         parse_table_version(&response)
+    //     } else {
+    //         warn!("get table version status: {:?}", status);
+    //         let err = response.json::<ErrorResponse>().await?;
+    //         if status.is_client_error() {
+    //             Err(DeltaSharingError::client(err.to_string()))
+    //         } else {
+    //             Err(DeltaSharingError::server(err.to_string()))
+    //         }
+    //     }
+    // }
+
+    // /// Retrieve the metadata of a table
+    // pub async fn get_table_metadata(
+    //     &self,
+    //     table: &Table,
+    // ) -> Result<(Protocol, Metadata), DeltaSharingError> {
+    //     let url = url_for_table(self.profile.endpoint().clone(), table, Some("metadata"));
+    //     trace!("requesting: {}", url);
+
+    //     let response = self.request(Method::GET, url).await?;
+    //     let status = response.status();
+
+    //     if !status.is_success() {
+    //         warn!("get table metadata status: {:?}", status);
+    //         let res = response.json::<ErrorResponse>().await.unwrap();
+    //         if status.is_client_error() {
+    //             Err(DeltaSharingError::client(res.to_string()))
+    //         } else {
+    //             Err(DeltaSharingError::server(res.to_string()))
+    //         }
+    //     } else {
+    //         info!("get table metadata status: {:?}", status);
+    //         let full = response.bytes().await?;
+    //         let mut lines = Deserializer::from_slice(&full).into_iter::<ParquetResponse>();
+
+    //         let protocol = lines
+    //             .next()
+    //             .and_then(Result::ok)
+    //             .and_then(ParquetResponse::to_protocol)
+    //             .ok_or(DeltaSharingError::parse_response("parsing protocol failed"))?;
+    //         let metadata = lines
+    //             .next()
+    //             .and_then(Result::ok)
+    //             .and_then(ParquetResponse::to_metadata)
+    //             .ok_or(DeltaSharingError::parse_response("parsing metadata failed"))?;
+
+    //         Ok((protocol, metadata))
+    //     }
+    // }
+
+    // /// Retrieve the data of a table
+    // pub async fn get_table_data(
+    //     &self,
+    //     table: &Table,
+    //     predicates: Option<String>,
+    //     limit: Option<u32>,
+    // ) -> Result<Vec<File>, DeltaSharingError> {
+    //     let url = url_for_table(self.profile.endpoint().clone(), table, Some("query"));
+    //     info!("requesting: {}", url);
+
+    //     let mut body: HashMap<String, String> = HashMap::new();
+    //     if let Some(pred) = predicates {
+    //         body.insert("jsonPredicateHints".to_string(), pred);
+    //     }
+    //     if let Some(lim) = limit {
+    //         body.insert("limitHint".to_string(), lim.to_string());
+    //     }
+    //     info!("body: {:?}", body);
+
+    //     let response = self
+    //         .client
+    //         .request(Method::POST, url)
+    //         .json(&body)
+    //         .authorize_with_profile(&self.profile)
+    //         .await?
+    //         .send()
+    //         .await?;
+    //     let status = response.status();
+
+    //     if !status.is_success() {
+    //         warn!("get table data status: {:?}", status);
+    //         let err = response.json::<ErrorResponse>().await.unwrap();
+    //         if status.is_client_error() {
+    //             Err(DeltaSharingError::client(err.to_string()))
+    //         } else {
+    //             Err(DeltaSharingError::server(err.to_string()))
+    //         }
+    //     } else {
+    //         let full = response.bytes().await?;
+
+    //         let text = unsafe { String::from_utf8_unchecked(full.as_ref().to_vec()) };
+    //         info!(text = %text, "full text");
+
+    //         let mut lines = Deserializer::from_slice(&full).into_iter::<ParquetResponse>();
+
+    //         let _ = lines
+    //             .next()
+    //             .and_then(Result::ok)
+    //             .and_then(ParquetResponse::to_protocol)
+    //             .ok_or(DeltaSharingError::parse_response("parsing protocol failed"))?;
+    //         let _ = lines
+    //             .next()
+    //             .and_then(Result::ok)
+    //             .and_then(ParquetResponse::to_metadata)
+    //             .ok_or(DeltaSharingError::parse_response("parsing metadata failed"))?;
+
+    //         let mut files = vec![];
+    //         for line in lines {
+    //             info!(line=?line, "processing line");
+    //             let file = line.ok().and_then(ParquetResponse::to_file);
+    //             if let Some(f) = file {
+    //                 files.push(f);
+    //             }
+    //         }
+
+    //         Ok(files)
+    //     }
+    // }
 
     async fn _get_table_changes(&self, _table: &Table) {
         todo!()
@@ -398,6 +584,7 @@ impl DeltaSharingClient {
         self.client
             .request(method, url)
             .authorize_with_profile(&self.profile)
+            .await
             .unwrap()
             .send()
             .await
@@ -542,7 +729,7 @@ mod test {
         let client = build_sharing_client(&server);
 
         let result = client
-            .list_shares_paginated(&Pagination::start(Some(1), Some("foo".into())))
+            .list_shares_paginated(&Pagination::from_token(Some(1), "foo".to_owned()))
             .await
             .unwrap();
 
@@ -579,7 +766,7 @@ mod test {
             Some("edacc4a7-6600-4fbb-85f3-a62a5ce6761f"),
         );
 
-        let result = client.get_share(&share).await.unwrap();
+        let result = client.get_share("vaccine_share").await.unwrap();
 
         mock.assert();
         assert_eq!(result, share);
@@ -604,7 +791,7 @@ mod test {
         let share = Share::new("vaccine_share", None);
 
         let result = client
-            .list_schemas_paginated(&share, &Pagination::start(Some(1), Some("foo".into())))
+            .list_schemas_paginated(&share, &Pagination::from_token(Some(1), "foo".to_owned()))
             .await
             .unwrap();
 
@@ -637,7 +824,7 @@ mod test {
         let result = client
             .list_tables_in_schema_paginated(
                 &schema,
-                &Pagination::start(Some(1), Some("foo".into())),
+                &Pagination::from_token(Some(1), "foo".to_owned()),
             )
             .await
             .unwrap();
@@ -684,7 +871,7 @@ mod test {
         let share = Share::new("vaccine_share", None);
 
         let result = client
-            .list_tables_in_share_paginated(&share, &Pagination::start(Some(1), Some("foo".into())))
+            .list_tables_in_share_paginated(&share, &Pagination::from_token(Some(1), "foo".into()))
             .await
             .unwrap();
 

@@ -1,12 +1,14 @@
 //! Delta Sharing server response types.
 
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::HashMap,
+    fmt::{Display, Formatter},
+};
 
-use serde::Deserialize;
+use delta_kernel::actions::{Add, Metadata, Protocol};
+use serde::{Deserialize, Serialize};
 
 use crate::securable::{Schema, Share, Table};
-
-use super::action::{File, Metadata, Protocol};
 
 /// Delta Sharing server response for failed requests.
 #[derive(Debug, Deserialize)]
@@ -23,7 +25,7 @@ impl ErrorResponse {
     }
 
     /// Retrieve the message of the response
-    pub fn _message(&self) -> &str {
+    pub fn message(&self) -> &str {
         &self.message
     }
 }
@@ -66,7 +68,7 @@ impl IntoIterator for ListSharesResponse {
 /// Delta Sharing server response for successful `get_share` requests.
 #[derive(Debug, Deserialize)]
 pub struct GetShareResponse {
-    share: Share,
+    pub share: Share,
 }
 
 impl GetShareResponse {
@@ -135,43 +137,189 @@ impl IntoIterator for ListTablesResponse {
     }
 }
 
-/// Delta Sharing server response lines for successful `get_table_metadata`,
-/// `get_table_data` and `get_table_changes` requests (in parquet format).
-#[derive(Debug, Deserialize)]
-pub enum ParquetResponse {
-    /// Protocol response
-    #[serde(rename = "protocol")]
-    Protocol(Protocol),
-    /// Metadata response
-    #[serde(rename = "metaData")]
-    Metadata(Metadata),
-    /// File response
-    #[serde(rename = "file")]
-    File(File),
+// /// Delta Sharing server response lines for successful `get_table_metadata`,
+// /// `get_table_data` and `get_table_changes` requests (in parquet format).
+// #[derive(Debug, Deserialize)]
+// pub enum ParquetResponse {
+//     /// Protocol response
+//     #[serde(rename = "protocol")]
+//     Protocol(Protocol),
+//     /// Metadata response
+//     #[serde(rename = "metaData")]
+//     Metadata(Metadata),
+//     /// File response
+//     #[serde(rename = "file")]
+//     File(File),
+// }
+
+// impl ParquetResponse {
+//     /// Retrieve the protocol of the response
+//     pub fn to_protocol(self) -> Option<Protocol> {
+//         match self {
+//             ParquetResponse::Protocol(p) => Some(p),
+//             _ => None,
+//         }
+//     }
+
+//     /// Retrieve the metadata of the response
+//     pub fn to_file(self) -> Option<File> {
+//         match self {
+//             ParquetResponse::File(f) => Some(f),
+//             _ => None,
+//         }
+//     }
+
+//     /// Retrieve the metadata of the response
+//     pub fn to_metadata(self) -> Option<Metadata> {
+//         match self {
+//             ParquetResponse::Metadata(m) => Some(m),
+//             _ => None,
+//         }
+//     }
+// }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TableAction {
+    Parquet(ParquetAction),
+    Delta(DeltaAction),
 }
 
-impl ParquetResponse {
-    /// Retrieve the protocol of the response
-    pub fn to_protocol(self) -> Option<Protocol> {
+impl TableAction {
+    pub fn is_parquet(&self) -> bool {
+        matches!(self, TableAction::Parquet(_))
+    }
+
+    pub fn is_delta(&self) -> bool {
+        matches!(self, TableAction::Delta(_))
+    }
+
+    pub fn as_parquet(&self) -> Option<&ParquetAction> {
         match self {
-            ParquetResponse::Protocol(p) => Some(p),
+            TableAction::Parquet(p) => Some(p),
             _ => None,
         }
     }
 
-    /// Retrieve the metadata of the response
-    pub fn to_file(self) -> Option<File> {
+    pub fn as_delta(&self) -> Option<&DeltaAction> {
         match self {
-            ParquetResponse::File(f) => Some(f),
+            TableAction::Delta(d) => Some(d),
             _ => None,
         }
     }
 
-    /// Retrieve the metadata of the response
-    pub fn to_metadata(self) -> Option<Metadata> {
+    pub fn to_parquet(self) -> Option<ParquetAction> {
         match self {
-            ParquetResponse::Metadata(m) => Some(m),
+            TableAction::Parquet(p) => Some(p),
             _ => None,
         }
     }
+
+    pub fn to_delta(self) -> Option<DeltaAction> {
+        match self {
+            TableAction::Delta(d) => Some(d),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ParquetAction {
+    Protocol(ParquetProtocolAction),
+    #[serde(rename = "metaData")]
+    Metadata(ParquetMetadataAction),
+    File(ParquetFileAction),
+}
+
+impl ParquetAction {
+    pub fn is_protocol(&self) -> bool {
+        matches!(self, ParquetAction::Protocol(_))
+    }
+
+    pub fn is_metadata(&self) -> bool {
+        matches!(self, ParquetAction::Metadata(_))
+    }
+
+    pub fn is_file(&self) -> bool {
+        matches!(self, ParquetAction::File(_))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParquetProtocolAction {
+    min_reader_version: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParquetMetadataAction {
+    id: String,
+    name: Option<String>,
+    description: Option<String>,
+    // format: ParquetResponseFormat,
+    schema_string: String,
+    partition_columns: Vec<String>,
+    #[serde(default)]
+    configuration: HashMap<String, Option<String>>,
+    version: Option<u64>,
+    size: Option<u64>,
+    num_files: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParquetFileAction {
+    url: String,
+    id: String,
+    partition_values: HashMap<String, Option<String>>,
+    size: u64,
+    stats: Option<String>,
+    version: Option<u64>,
+    timestamp: Option<u64>,
+    expiration_timestamp: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DeltaAction {
+    Protocol(DeltaProtocolAction),
+    #[serde(rename = "metaData")]
+    Metadata(DeltaMetadataAction),
+    File(DeltaFileAction),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeltaProtocolAction {
+    delta_protocol: Protocol,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeltaMetadataAction {
+    delta_metadata: Metadata,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DeltaSingleAction {
+    Add(Add),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeltaFileAction {
+    id: String,
+    deletion_vector_field_id: Option<String>,
+    version: Option<u64>,
+    timestamp: Option<u64>,
+    expiration_timestamp: Option<u64>,
+    delta_single_action: DeltaSingleAction,
+}
+
+pub struct WrappedResponse {
+    version: u64,
+    
 }

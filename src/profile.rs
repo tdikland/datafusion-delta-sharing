@@ -17,6 +17,7 @@
 //! ```
 use std::{fmt::Formatter, fs::File, path::Path};
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use reqwest::RequestBuilder;
 use serde::Deserialize;
@@ -159,6 +160,10 @@ impl Profile {
         &self.endpoint
     }
 
+    pub fn prefix(&self) -> &Url {
+        self.endpoint()
+    }
+
     /// Create a new Delta Sharing profile using a bearer token.
     ///
     /// # Example
@@ -198,6 +203,10 @@ impl Profile {
     /// ```
     pub fn is_bearer_token(&self) -> bool {
         self.profile_type.is_bearer_token()
+    }
+
+    pub async fn fetch_token(&self) -> Result<String, ()> {
+        todo!()
     }
 }
 
@@ -323,6 +332,13 @@ impl BearerToken {
     }
 }
 
+#[async_trait]
+impl TokenProvider for BearerToken {
+    async fn provide_token(&self) -> Result<&str, ()> {
+        Ok(&self.token)
+    }
+}
+
 impl std::fmt::Debug for BearerToken {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BearerTokenFile")
@@ -332,15 +348,17 @@ impl std::fmt::Debug for BearerToken {
     }
 }
 
+#[async_trait]
 pub(crate) trait DeltaSharingProfileExt
 where
     Self: Sized,
 {
-    fn authorize_with_profile(self, profile: &Profile) -> Result<Self, DeltaSharingError>;
+    async fn authorize_with_profile(self, profile: &Profile) -> Result<Self, DeltaSharingError>;
 }
 
+#[async_trait]
 impl DeltaSharingProfileExt for RequestBuilder {
-    fn authorize_with_profile(self, profile: &Profile) -> Result<Self, DeltaSharingError> {
+    async fn authorize_with_profile(self, profile: &Profile) -> Result<Self, DeltaSharingError> {
         let authorized_request_builder = match &profile.profile_type {
             ProfileType::BearerToken(b) => {
                 if b.has_expired() {
@@ -352,6 +370,20 @@ impl DeltaSharingProfileExt for RequestBuilder {
             }
         };
         Ok(authorized_request_builder)
+    }
+}
+
+#[async_trait]
+pub trait TokenProvider {
+    async fn provide_token(&self) -> Result<&str, ()>;
+}
+
+#[async_trait]
+impl TokenProvider for Profile {
+    async fn provide_token(&self) -> Result<&str, ()> {
+        match &self.profile_type {
+            ProfileType::BearerToken(b) => b.provide_token().await,
+        }
     }
 }
 
@@ -454,8 +486,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn authenticate_request_with_bearer_token() {
+    #[tokio::test]
+    async fn authenticate_request_with_bearer_token() {
         let profile = Profile::new_bearer_token(
             1,
             "https://sharing.delta.io/delta-sharing/",
@@ -465,6 +497,7 @@ mod tests {
         let request = reqwest::Client::new().get("https://example.com");
         let request = request
             .authorize_with_profile(&profile)
+            .await
             .unwrap()
             .build()
             .unwrap();
@@ -474,8 +507,8 @@ mod tests {
         assert_eq!(auth_header, "Bearer test-token");
     }
 
-    #[test]
-    fn authenticate_request_with_expired_token() {
+    #[tokio::test]
+    async fn authenticate_request_with_expired_token() {
         let expiration_time = Utc::now() - chrono::Duration::days(1);
         let profile = Profile::new_bearer_token(
             1,
@@ -485,7 +518,8 @@ mod tests {
         );
         let request_builder = reqwest::Client::new()
             .get("https://example.com")
-            .authorize_with_profile(&profile);
+            .authorize_with_profile(&profile)
+            .await;
 
         assert!(request_builder.is_err());
         assert_eq!(

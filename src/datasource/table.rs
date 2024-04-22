@@ -210,7 +210,11 @@ impl TableProvider for DeltaSharingTable {
         let d_client = DeltaSharingDeltaClient::new(self.client.profile().clone());
         let actions = d_client.get_table_data(&self.table, None, None).await?;
 
-        let mut file = std::fs::OpenOptions::new().write(true).truncate(true).open("/Users/timdikland/oss/datafusion-delta-sharing/tests/data/_delta_log/00000000000000000000.json").unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open("./tests/data/_delta_log/00000000000000000000.json")
+            .unwrap();
         for action in actions {
             match action {
                 DeltaResponseLine::Protocol(p) => {
@@ -238,14 +242,14 @@ impl TableProvider for DeltaSharingTable {
         }
 
         let table = delta_kernel::Table::new(
-            "file:///Users/timdikland/oss/datafusion-delta-sharing/tests/data"
+            "file:///Users/Tim.Dikland/oss/datafusion-delta-sharing/tests/data/"
                 .parse()
                 .unwrap(),
         );
         warn!(table = ?table, "TABLE");
 
         let engine = delta_kernel::client::DefaultTableClient::try_new(
-            &"file:///Users/timdikland/oss/datafusion-delta-sharing/tests/data"
+            &"file:///Users/Tim.Dikland/oss/datafusion-delta-sharing/tests/data/"
                 .parse::<Url>()
                 .unwrap(),
             HashMap::<String, String>::new(),
