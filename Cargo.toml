@@ -12,15 +12,16 @@ keywords = ["sharing", "delta", "deltalake", "delta-sharing", "datafusion"]
 categories = ["database-implementations", "database", "web-programming"]
 
 [dependencies]
-arrow = "50.0.0"
-arrow-schema = "50.0.0"
+arrow = "53.3.0"
+arrow-schema = "53.3.0"
 async-trait = "0.1.77"
 bytes = "1.5.0"
 chrono = "0.4.31"
-datafusion = { version = "35.0.0", features = ["serde"] }
+datafusion = { version = "44.0.0", features = ["serde"] }
+delta_kernel = "0.6.1"
 futures = "0.3.30"
-object_store = { version = "0.9.0", features = ["http"] }
-parquet = { version = "50.0.0", features = ["async"] }
+object_store = { version = "0.11.0", features = ["http"] }
+parquet = { version = "53.3.0", features = ["async"] }
 reqwest = { version = "0.11.23", features = ["json"] }
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
@@ -36,3 +37,8 @@ tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
 ] }
 tracing-test = { version = "0.2.4" }
+insta = { version = "1.42.0", features = ["yaml", "json"] }
+
+[profile.dev.package]
+insta.opt-level = 3
+similar.opt-level = 3

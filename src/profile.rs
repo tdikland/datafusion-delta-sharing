@@ -99,7 +99,7 @@ impl Profile {
     ///
     /// # Example
     /// ```rust
-    /// use datafusion_delta_sharing::{Profile, profile::ProfileType};
+    /// use datafusion_delta_sharing::{profile::ProfileType, Profile};
     /// use url::Url;
     ///
     /// let version = 1;
@@ -127,11 +127,13 @@ impl Profile {
     ///
     /// # Example
     /// ```rust
-    /// use datafusion_delta_sharing::{Profile, profile::ProfileType};
+    /// use datafusion_delta_sharing::{profile::ProfileType, Profile};
     /// use url::Url;
     ///
     /// let version = 1;
-    /// let endpoint = "https://sharing.delta.io/delta-sharing/".parse::<Url>().unwrap();
+    /// let endpoint = "https://sharing.delta.io/delta-sharing/"
+    ///     .parse::<Url>()
+    ///     .unwrap();
     /// let profile_type = ProfileType::new_bearer_token("token", None);
     /// let profile = Profile::from_profile_type(1, endpoint, profile_type);
     ///
@@ -145,11 +147,13 @@ impl Profile {
     ///
     /// # Example
     /// ```rust
-    /// use datafusion_delta_sharing::{Profile, profile::ProfileType};
+    /// use datafusion_delta_sharing::{profile::ProfileType, Profile};
     /// use url::Url;
     ///
     /// let version = 1;
-    /// let endpoint = "https://sharing.delta.io/delta-sharing/".parse::<Url>().unwrap();
+    /// let endpoint = "https://sharing.delta.io/delta-sharing/"
+    ///     .parse::<Url>()
+    ///     .unwrap();
     /// let profile_type = ProfileType::new_bearer_token("token", None);
     /// let profile = Profile::from_profile_type(1, endpoint.clone(), profile_type);
     ///
@@ -165,7 +169,8 @@ impl Profile {
     /// ```
     /// use datafusion_delta_sharing::Profile;
     ///
-    /// let profile = Profile::new_bearer_token(1, "https://sharing.delta.io/delta-sharing/", "token", None);
+    /// let profile =
+    ///     Profile::new_bearer_token(1, "https://sharing.delta.io/delta-sharing/", "token", None);
     /// assert!(profile.is_bearer_token());
     /// ```
     pub fn new_bearer_token(
@@ -186,11 +191,13 @@ impl Profile {
     ///
     /// # Example
     /// ```rust
-    /// use datafusion_delta_sharing::{Profile, profile::ProfileType};
+    /// use datafusion_delta_sharing::{profile::ProfileType, Profile};
     /// use url::Url;
     ///
     /// let version = 1;
-    /// let endpoint = "https://sharing.delta.io/delta-sharing/".parse::<Url>().unwrap();
+    /// let endpoint = "https://sharing.delta.io/delta-sharing/"
+    ///     .parse::<Url>()
+    ///     .unwrap();
     /// let profile_type = ProfileType::new_bearer_token("token", None);
     /// let profile = Profile::from_profile_type(1, endpoint, profile_type);
     ///
@@ -282,8 +289,8 @@ impl BearerToken {
     ///
     /// # Example
     /// ```rust
-    /// use datafusion_delta_sharing::profile::BearerToken;
     /// use chrono::{TimeZone, Utc};
+    /// use datafusion_delta_sharing::profile::BearerToken;
     ///
     /// let expiration_time = Utc.with_ymd_and_hms(2021, 7, 14, 0, 0, 0).unwrap();
     /// let bearer_token = BearerToken::new("token", Some(expiration_time));
@@ -300,9 +307,9 @@ impl BearerToken {
     ///
     /// # Example
     /// ```rust
-    /// use std::{thread, time::Duration};
-    /// use datafusion_delta_sharing::profile::BearerToken;
     /// use chrono::Utc;
+    /// use datafusion_delta_sharing::profile::BearerToken;
+    /// use std::{thread, time::Duration};
     ///
     /// let bearer_token = BearerToken::new("token", None);
     /// assert!(!bearer_token.has_expired());

@@ -8,6 +8,8 @@ use std::{
 use arrow_schema::ArrowError;
 use datafusion::error::DataFusionError;
 
+use crate::expr::error::ParseExpressionError;
+
 /// Error type for Delta Sharing.
 #[derive(Debug, Clone)]
 pub struct DeltaSharingError {
@@ -128,5 +130,11 @@ impl From<ArrowError> for DeltaSharingError {
 impl From<DeltaSharingError> for DataFusionError {
     fn from(e: DeltaSharingError) -> Self {
         DataFusionError::Execution(e.to_string())
+    }
+}
+
+impl From<ParseExpressionError> for DeltaSharingError {
+    fn from(value: ParseExpressionError) -> Self {
+        todo!()
     }
 }

@@ -95,7 +95,7 @@ impl Schema {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Share, Schema};
+    /// use datafusion_delta_sharing::securable::{Schema, Share};
     ///
     /// let schema = Schema::new("my-share", "my-schema");
     /// assert_eq!(schema.share_name(), "my-share");
@@ -109,7 +109,7 @@ impl Schema {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Schema};
+    /// use datafusion_delta_sharing::securable::Schema;
     ///
     /// let schema = Schema::new("my-share", "my-schema");
     /// assert_eq!(schema.name(), "my-schema");
@@ -179,7 +179,7 @@ impl Table {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Share, Schema, Table};
+    /// use datafusion_delta_sharing::securable::{Schema, Share, Table};
     ///
     /// let table = Table::new("my-share", "my-schema", "my-table", None, None);
     /// assert_eq!(table.share_name(), "my-share");
@@ -193,9 +193,15 @@ impl Table {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Share, Schema, Table};
+    /// use datafusion_delta_sharing::securable::{Schema, Share, Table};
     ///
-    /// let table = Table::new("my-share", "my-schema", "my-table", Some("my-share-id".to_string()), None);
+    /// let table = Table::new(
+    ///     "my-share",
+    ///     "my-schema",
+    ///     "my-table",
+    ///     Some("my-share-id".to_string()),
+    ///     None,
+    /// );
     /// assert_eq!(table.share_id(), Some("my-share-id"));
     /// ```
     pub fn share_id(&self) -> Option<&str> {
@@ -207,7 +213,7 @@ impl Table {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Share, Schema, Table};
+    /// use datafusion_delta_sharing::securable::{Schema, Share, Table};
     ///
     /// let table = Table::new("my-share", "my-schema", "my-table", None, None);
     /// assert_eq!(table.schema_name(), "my-schema");
@@ -221,7 +227,7 @@ impl Table {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Share, Schema, Table};
+    /// use datafusion_delta_sharing::securable::{Schema, Share, Table};
     ///
     /// let table = Table::new("my-share", "my-schema", "my-table", None, None);
     /// assert_eq!(table.name(), "my-table");
@@ -235,9 +241,15 @@ impl Table {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Share, Schema, Table};
+    /// use datafusion_delta_sharing::securable::{Schema, Share, Table};
     ///
-    /// let table = Table::new("my-share", "my-schema", "my-table", None, Some("my-table-id".to_string()));
+    /// let table = Table::new(
+    ///     "my-share",
+    ///     "my-schema",
+    ///     "my-table",
+    ///     None,
+    ///     Some("my-table-id".to_string()),
+    /// );
     /// assert_eq!(table.id(), Some("my-table-id"));
     /// ```
     pub fn id(&self) -> Option<&str> {

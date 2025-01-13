@@ -8,13 +8,14 @@
 //! ```no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # async {
-//! use std::sync::Arc;
 //! use datafusion::prelude::*;
+//! use std::sync::Arc;
 //!
 //! use datafusion_delta_sharing::DeltaSharingTable;
 //!
 //! let ctx = SessionContext::new();
-//! let table = DeltaSharingTable::try_from_str("./path/to/profile.share#share.schema.table").await?;
+//! let table =
+//!     DeltaSharingTable::try_from_str("./path/to/profile.share#share.schema.table").await?;
 //!
 //! ctx.register_table("demo", Arc::new(table))?;
 //! let data = ctx.sql("select * from demo").await?.collect().await?;
@@ -28,6 +29,7 @@ pub mod catalog;
 pub mod client;
 pub mod datasource;
 pub mod error;
+mod expr;
 pub mod profile;
 pub mod securable;
 

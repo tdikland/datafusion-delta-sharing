@@ -1,0 +1,54 @@
+---
+source: src/expr/mod.rs
+expression: op
+---
+{
+  "op": "or",
+  "children": [
+    {
+      "op": "equal",
+      "children": [
+        {
+          "op": "column",
+          "name": "a",
+          "valueType": "string"
+        },
+        {
+          "op": "literal",
+          "value": "1",
+          "valueType": "string"
+        }
+      ]
+    },
+    {
+      "op": "equal",
+      "children": [
+        {
+          "op": "column",
+          "name": "b",
+          "valueType": "string"
+        },
+        {
+          "op": "literal",
+          "value": "2",
+          "valueType": "string"
+        }
+      ]
+    },
+    {
+      "op": "equal",
+      "children": [
+        {
+          "op": "column",
+          "name": "c",
+          "valueType": "string"
+        },
+        {
+          "op": "literal",
+          "value": "3",
+          "valueType": "string"
+        }
+      ]
+    }
+  ]
+}

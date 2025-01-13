@@ -9,9 +9,11 @@ use datafusion::{
     },
     error::Result,
     execution::object_store::ObjectStoreUrl,
-    physical_expr::Partitioning,
-    physical_expr::PhysicalSortExpr,
-    physical_plan::{metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan, Statistics},
+    physical_expr::EquivalenceProperties,
+    physical_plan::{
+        metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
+        Statistics,
+    },
     scalar::ScalarValue,
 };
 use object_store::ObjectMeta;
@@ -81,21 +83,20 @@ impl DeltaSharingScanBuilder {
             output_ordering: vec![],
             table_partition_cols: partition_fields,
         };
-        let pred = None;
-        let size_hint = None;
 
-        let exec = ParquetExec::new(config, pred, size_hint)
-            .with_enable_bloom_filter(false)
-            .with_enable_page_index(false)
-            .with_parquet_file_reader_factory(Arc::new(SignedParquetFileReaderFactory::new()));
+        let exec = ParquetExec::builder(config)
+            .with_parquet_file_reader_factory(Arc::new(SignedParquetFileReaderFactory::new()))
+            .build();
 
-        Ok(DeltaSharingScan { inner: exec })
+        Ok(DeltaSharingScan {
+            inner: Arc::new(exec),
+        })
     }
 }
 
 #[derive(Debug)]
 pub struct DeltaSharingScan {
-    inner: ParquetExec,
+    inner: Arc<dyn ExecutionPlan>,
 }
 
 impl DisplayAs for DeltaSharingScan {
@@ -112,31 +113,31 @@ impl DisplayAs for DeltaSharingScan {
 }
 
 impl ExecutionPlan for DeltaSharingScan {
+    fn name(&self) -> &str {
+        DeltaSharingScan::static_name()
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn properties(&self) -> &PlanProperties {
+        self.inner.properties()
     }
 
     fn schema(&self) -> SchemaRef {
         self.inner.schema()
     }
 
-    fn output_partitioning(&self) -> Partitioning {
-        self.inner.output_partitioning()
-    }
-
-    fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
-        self.inner.output_ordering()
-    }
-
-    fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
-        vec![Arc::new(self.inner.clone())]
+    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
+        vec![]
     }
 
     fn with_new_children(
         self: Arc<Self>,
-        children: Vec<Arc<dyn ExecutionPlan>>,
+        _: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        ExecutionPlan::with_new_children(Arc::new(self.inner.clone()), children)
+        Ok(self)
     }
 
     fn execute(
@@ -181,6 +182,8 @@ fn build_partitioned_file(
         // It is passed to the object store via extensions, since the signature
         // in the URL cannot be expressed as part of the object store API.
         extensions: Some(Arc::new(signed_url)),
+        statistics: None,
+        metadata_size_hint: None,
     };
     Ok(partitioned_file)
 }

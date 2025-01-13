@@ -22,7 +22,10 @@
 //! let catalog_list = DeltaSharingCatalogList::try_new(profile).await?;
 //! ctx.register_catalog_list(Arc::new(catalog_list));
 //!
-//! ctx.sql("SELECT * FROM my_share.my_schema.my_table").await?.show().await?;
+//! ctx.sql("SELECT * FROM my_share.my_schema.my_table")
+//!     .await?
+//!     .show()
+//!     .await?;
 //! # Ok::<(), DataFusionError>(())};
 //! # Ok(()) }
 //! ```
@@ -30,7 +33,8 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use datafusion::{
-    catalog::{schema::SchemaProvider, CatalogList, CatalogProvider},
+    catalog::{CatalogProvider, CatalogProviderList, SchemaProvider},
+    common::DataFusionError,
     datasource::TableProvider,
 };
 
@@ -43,6 +47,7 @@ use crate::{
 };
 
 /// Datafusion [`CatalogList`] implementation for Delta Sharing.
+#[derive(Debug)]
 pub struct DeltaSharingCatalogList {
     shares: HashMap<String, Arc<dyn CatalogProvider>>,
 }
@@ -58,8 +63,8 @@ impl DeltaSharingCatalogList {
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # async {
     /// # use datafusion::error::DataFusionError;
-    /// use datafusion::catalog::CatalogList;
-    /// use datafusion_delta_sharing::{Profile, catalog::DeltaSharingCatalogList};
+    /// use datafusion::catalog::CatalogProviderList;
+    /// use datafusion_delta_sharing::{catalog::DeltaSharingCatalogList, Profile};
     ///
     /// let profile = Profile::try_from_path("./path/to/profile.share")?;
     /// let catalog_list = DeltaSharingCatalogList::try_new(profile).await?;
@@ -85,7 +90,7 @@ impl DeltaSharingCatalogList {
     }
 }
 
-impl CatalogList for DeltaSharingCatalogList {
+impl CatalogProviderList for DeltaSharingCatalogList {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -108,6 +113,7 @@ impl CatalogList for DeltaSharingCatalogList {
 }
 
 /// Datafusion [`CatalogProvider`] implementation for Delta Sharing.
+#[derive(Debug)]
 pub struct DeltaSharingCatalog {
     schemas: HashMap<String, Arc<dyn SchemaProvider>>,
 }
@@ -124,7 +130,7 @@ impl DeltaSharingCatalog {
     /// # async {
     /// # use datafusion::error::DataFusionError;
     /// use datafusion::catalog::CatalogProvider;
-    /// use datafusion_delta_sharing::{Profile, catalog::DeltaSharingCatalog};
+    /// use datafusion_delta_sharing::{catalog::DeltaSharingCatalog, Profile};
     ///
     /// let profile = Profile::try_from_path("./path/to/profile.share")?;
     /// let catalog = DeltaSharingCatalog::try_new(profile, "my_share").await?;
@@ -175,6 +181,7 @@ impl CatalogProvider for DeltaSharingCatalog {
 }
 
 /// Datafusion [`SchemaProvider`] implementation for Delta Sharing.
+#[derive(Debug)]
 pub struct DeltaSharingSchema {
     client: DeltaSharingClient,
     share_name: String,
@@ -203,15 +210,14 @@ impl SchemaProvider for DeltaSharingSchema {
         self.table_names.clone()
     }
 
-    async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
+    async fn table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>, DataFusionError> {
         let table = Table::new(&self.share_name, &self.schema_name, name, None, None);
         let provider = DeltaSharingTableBuilder::new()
             .with_profile(self.client.profile().clone())
             .with_table(table)
             .build()
-            .await
-            .ok()?;
-        Some(Arc::new(provider))
+            .await?;
+        Ok(Some(Arc::new(provider)))
     }
 
     fn table_exist(&self, name: &str) -> bool {

@@ -1,13 +1,13 @@
 //! Delta Sharing table
 
-use std::{any::Any, sync::Arc};
+use std::{any::Any, borrow::Cow, sync::Arc};
 
 use datafusion::{
     arrow::datatypes::{Field, Schema, SchemaRef},
+    catalog::Session,
     common::{stats::Statistics, Constraints},
     datasource::TableProvider,
     error::Result as DataFusionResult,
-    execution::context::SessionState,
     logical_expr::{utils::conjunction, Expr, LogicalPlan, TableProviderFilterPushDown, TableType},
     physical_plan::ExecutionPlan,
 };
@@ -21,7 +21,8 @@ use crate::{
     DeltaSharingError, Profile,
 };
 
-use super::{expr::Op, scan::DeltaSharingScanBuilder, schema::StructType};
+use super::{scan::DeltaSharingScanBuilder, schema::StructType};
+use crate::expr::Op;
 
 /// Builder for [`DeltaSharingTable`]
 #[derive(Debug, Default)]
@@ -60,17 +61,18 @@ impl DeltaSharingTableBuilder {
         Ok(DeltaSharingTable {
             client,
             table,
-            _protocol: protocol,
+            protocol: protocol,
             metadata,
         })
     }
 }
 
 /// Delta Sharing implementation of [`TableProvider`]`
+#[derive(Debug)]
 pub struct DeltaSharingTable {
     client: DeltaSharingClient,
     table: Table,
-    _protocol: Protocol,
+    protocol: Protocol,
     metadata: Metadata,
 }
 
@@ -86,7 +88,8 @@ impl DeltaSharingTable {
     /// # async {
     /// use datafusion_delta_sharing::DeltaSharingTable;
     ///
-    /// let table = DeltaSharingTable::try_from_str("./path/to/profile.share#share.schema.table").await?;
+    /// let table =
+    ///     DeltaSharingTable::try_from_str("./path/to/profile.share#share.schema.table").await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(()) };
     /// # Ok(()) }
     /// ```
@@ -100,6 +103,16 @@ impl DeltaSharingTable {
             .with_table(table)
             .build()
             .await
+    }
+
+    /// Return the [`Protocol`] of the shared table
+    pub fn protocol(&self) -> &Protocol {
+        &self.protocol
+    }
+
+    /// Return the [`Metadata`] of the shared table
+    pub fn metadata(&self) -> &Metadata {
+        &self.metadata
     }
 
     fn arrow_schema(&self) -> SchemaRef {
@@ -130,7 +143,7 @@ impl DeltaSharingTable {
         limit: Option<usize>,
     ) -> Result<Vec<File>, DeltaSharingError> {
         let mapped_limit = limit.map(|l| l as u32);
-        let mapped_filter = filter.map(|f| f.to_string_repr());
+        let mapped_filter = filter.map(|f| serde_json::to_string(&f).unwrap());
         self.client
             .get_table_data(&self.table, mapped_filter, mapped_limit)
             .await
@@ -163,7 +176,7 @@ impl TableProvider for DeltaSharingTable {
         None
     }
 
-    fn get_logical_plan(&self) -> Option<&LogicalPlan> {
+    fn get_logical_plan(&self) -> Option<Cow<LogicalPlan>> {
         None
     }
 
@@ -173,14 +186,14 @@ impl TableProvider for DeltaSharingTable {
 
     async fn scan(
         &self,
-        _state: &SessionState,
+        _state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
         // Convert filters to Delta Sharing filter
         let filter = conjunction(filters.iter().cloned())
-            .and_then(|expr| Op::from_expr(&expr, self.arrow_schema()).ok());
+            .and_then(|expr| Op::try_from_expr(&expr, self.arrow_schema()).ok());
 
         // Fetch files satisfying filters & limit (best effort)
         let files = self.list_files_for_scan(filter, limit).await?;
@@ -202,7 +215,7 @@ impl TableProvider for DeltaSharingTable {
         filters
             .iter()
             .map(|f| {
-                let op = Op::from_expr(f, self.arrow_schema());
+                let op = Op::try_from_expr(f, self.arrow_schema());
                 if op.is_ok() {
                     Ok(TableProviderFilterPushDown::Inexact)
                 } else {

@@ -23,9 +23,10 @@ pub enum Op {
 }
 
 impl Op {
-    pub fn column(name: &str, value_type: ValueType) -> Self {
+    /// Leaf operation rep
+    pub fn column(name: impl Into<String>, value_type: ValueType) -> Self {
         Op::Column(ColumnOp {
-            name: name.to_string(),
+            name: name.into(),
             value_type,
         })
     }

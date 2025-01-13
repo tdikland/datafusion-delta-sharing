@@ -1,0 +1,19 @@
+---
+source: src/expr/mod.rs
+expression: op
+---
+{
+  "op": "greaterThan",
+  "children": [
+    {
+      "op": "column",
+      "name": "column_name",
+      "valueType": "int"
+    },
+    {
+      "op": "literal",
+      "value": "25",
+      "valueType": "int"
+    }
+  ]
+}

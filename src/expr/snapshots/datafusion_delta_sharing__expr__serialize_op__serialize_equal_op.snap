@@ -1,0 +1,19 @@
+---
+source: src/expr/mod.rs
+expression: op
+---
+{
+  "op": "equal",
+  "children": [
+    {
+      "op": "column",
+      "name": "column_name",
+      "valueType": "string"
+    },
+    {
+      "op": "literal",
+      "value": "literal_value",
+      "valueType": "string"
+    }
+  ]
+}

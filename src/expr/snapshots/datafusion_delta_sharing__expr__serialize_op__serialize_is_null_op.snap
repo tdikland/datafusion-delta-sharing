@@ -1,0 +1,14 @@
+---
+source: src/expr/mod.rs
+expression: op
+---
+{
+  "op": "isNull",
+  "children": [
+    {
+      "op": "column",
+      "name": "column_name",
+      "valueType": "string"
+    }
+  ]
+}
