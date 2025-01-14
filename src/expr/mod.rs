@@ -3,7 +3,6 @@ use std::ops::{BitAnd, BitOr, Not};
 use arrow_schema::{DataType, SchemaRef};
 use chrono::Days;
 use datafusion::{logical_expr::Expr, scalar::ScalarValue};
-use delta_kernel::actions::Add;
 
 use crate::DeltaSharingError;
 use error::ParseExpressionError;
@@ -11,7 +10,7 @@ use serde::{ser::SerializeStruct, Serialize};
 
 pub(crate) mod error;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     Column(Column),
     Literal(Literal),
@@ -424,21 +423,21 @@ impl Not for Op {
     }
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct Column {
     name: String,
     value_type: ValueType,
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct Literal {
     value: String,
     value_type: ValueType,
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ValueType {
     Bool,
@@ -582,6 +581,20 @@ mod serialize_op {
         insta::assert_json_snapshot!(op);
     }
 }
+
+#[cfg(test)]
+mod invariants {
+    use super::*;
+
+    #[test]
+    fn only_accept_leaf_ops_in_binary_ops() {
+        let col_a = Op::col("a", ValueType::String);
+        let err = Op::eq(col_a.clone(), Op::eq(col_a.clone(), col_a.clone()));
+    }
+}
+
+#[cfg(test)]
+mod parse_datafusion_expr {}
 
 #[cfg(test)]
 mod test {

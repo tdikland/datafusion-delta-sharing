@@ -191,9 +191,18 @@ impl TableProvider for DeltaSharingTable {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
-        // Convert filters to Delta Sharing filter
-        let filter = conjunction(filters.iter().cloned())
-            .and_then(|expr| Op::try_from_expr(&expr, self.arrow_schema()).ok());
+        // Convert filters to Delta Sharing filter.
+        // If a filter expression from Datafusion is not supported, than it is omitted from the 
+        // conjunction.
+        let mut supported_ops = filters
+            .into_iter()
+            .filter_map(|filter| Op::try_from_expr(filter, self.arrow_schema()).ok())
+            .collect::<Vec<_>>();
+        let filter = match supported_ops.len() {
+            0 => None,
+            1 => Some(supported_ops.swap_remove(0)),
+            2.. => Some(Op::and(supported_ops)),
+        };
 
         // Fetch files satisfying filters & limit (best effort)
         let files = self.list_files_for_scan(filter, limit).await?;
