@@ -21,10 +21,11 @@
 //! # Ok(()) }
 //! ```
 
-// mod expr;
 mod reader;
-mod scan;
+mod scan_old;
 mod schema;
 mod table;
+mod exec;
+mod scan;
 
 pub use table::{DeltaSharingTable, DeltaSharingTableBuilder};

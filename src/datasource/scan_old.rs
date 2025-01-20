@@ -9,7 +9,6 @@ use datafusion::{
     },
     error::Result,
     execution::object_store::ObjectStoreUrl,
-    physical_expr::EquivalenceProperties,
     physical_plan::{
         metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
         Statistics,

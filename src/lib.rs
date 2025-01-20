@@ -23,16 +23,23 @@
 //! # Ok(()) }
 //! ```
 
-#![deny(missing_docs)]
+// #![warn(missing_docs)]
 
-pub mod catalog;
-pub mod client;
-pub mod datasource;
+// pub mod catalog;
+// pub mod client;
+// pub mod datasource;
 pub mod error;
-mod expr;
-pub mod profile;
-pub mod securable;
+pub mod expr;
+// pub mod profile;
+// pub mod securable;
 
-pub use datasource::DeltaSharingTable;
-pub use error::{DeltaSharingError, DeltaSharingErrorKind};
-pub use profile::Profile;
+pub mod auth;
+pub mod model;
+pub mod rest;
+pub mod sdk;
+
+pub use sdk::Client;
+
+// pub use datasource::DeltaSharingTable;
+// pub use error::{DeltaSharingError, DeltaSharingErrorKind};
+// pub use profile::Profile;

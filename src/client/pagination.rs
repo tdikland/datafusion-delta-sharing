@@ -1,5 +1,11 @@
 //! Pagination support for the client.
 
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use futures::Stream;
 use reqwest::Url;
 
 const QUERY_PARAM_MAX_RESULTS: &str = "maxResults";

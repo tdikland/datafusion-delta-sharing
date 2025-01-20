@@ -11,13 +11,13 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use reqwest::{header::RANGE, Client, Method, Url};
 
-// use datafusion::parquet::arrow::async_reader::Par
-
 struct SignedParquetFileReader {
     url: Arc<String>,
     client: Client,
     size: usize,
 }
+
+// use parquet::arrow::
 
 impl SignedParquetFileReader {
     fn new(client: Client, url: Arc<String>, size: usize) -> Self {

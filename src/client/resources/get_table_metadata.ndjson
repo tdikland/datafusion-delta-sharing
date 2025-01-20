@@ -1,2 +1,0 @@
-{"protocol":{"minReaderVersion":1}}
-{"metaData":{"id":"table_id","format":{"provider":"parquet"},"schemaString":"schema_as_string","partitionColumns":["date"]}}

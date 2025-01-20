@@ -8,20 +8,25 @@ use datafusion::{
     common::{stats::Statistics, Constraints},
     datasource::TableProvider,
     error::Result as DataFusionResult,
-    logical_expr::{utils::conjunction, Expr, LogicalPlan, TableProviderFilterPushDown, TableType},
+    logical_expr::{Expr, LogicalPlan, TableProviderFilterPushDown, TableType},
     physical_plan::ExecutionPlan,
 };
 
 use crate::{
+    auth::Profile,
     client::{
-        action::{File, Metadata, Protocol},
-        DeltaSharingClient,
+        // action::{File, Metadata, Protocol},
+        client::DeltaSharingClient,
     },
-    securable::Table,
-    DeltaSharingError, Profile,
+    error::DeltaSharingError,
+    model::Table,
 };
 
-use super::{scan::DeltaSharingScanBuilder, schema::StructType};
+use crate::model::action::parquet::ParquetFile;
+use crate::model::action::parquet::ParquetMetadata;
+use crate::model::action::parquet::ParquetProtocol;
+
+use super::{scan_old::DeltaSharingScanBuilder, schema::StructType};
 use crate::expr::Op;
 
 /// Builder for [`DeltaSharingTable`]
@@ -58,9 +63,15 @@ impl DeltaSharingTableBuilder {
         let client = DeltaSharingClient::new(profile);
         let (protocol, metadata) = client.get_table_metadata(&table).await?;
 
+        let parsed_schema: delta_kernel::schema::StructType =
+            serde_json::from_str(metadata.schema_string()).unwrap();
+        // let arrow_schema: arrow_schema::Schema = (&parsed_schema).try_into().unwrap();
+        let s = todo!();
+
         Ok(DeltaSharingTable {
             client,
             table,
+            schema: s,
             protocol: protocol,
             metadata,
         })
@@ -72,8 +83,9 @@ impl DeltaSharingTableBuilder {
 pub struct DeltaSharingTable {
     client: DeltaSharingClient,
     table: Table,
-    protocol: Protocol,
-    metadata: Metadata,
+    schema: Schema,
+    protocol: ParquetProtocol,
+    metadata: ParquetMetadata,
 }
 
 impl DeltaSharingTable {
@@ -105,15 +117,15 @@ impl DeltaSharingTable {
             .await
     }
 
-    /// Return the [`Protocol`] of the shared table
-    pub fn protocol(&self) -> &Protocol {
-        &self.protocol
-    }
+    // /// Return the [`Protocol`] of the shared table
+    // pub fn protocol(&self) -> &PaProtocol {
+    //     &self.protocol
+    // }
 
-    /// Return the [`Metadata`] of the shared table
-    pub fn metadata(&self) -> &Metadata {
-        &self.metadata
-    }
+    // /// Return the [`Metadata`] of the shared table
+    // pub fn metadata(&self) -> &Metadata {
+    //     &self.metadata
+    // }
 
     fn arrow_schema(&self) -> SchemaRef {
         let s: StructType = serde_json::from_str(self.metadata.schema_string()).unwrap();
@@ -141,7 +153,7 @@ impl DeltaSharingTable {
         &self,
         filter: Option<Op>,
         limit: Option<usize>,
-    ) -> Result<Vec<File>, DeltaSharingError> {
+    ) -> Result<Vec<ParquetFile>, DeltaSharingError> {
         let mapped_limit = limit.map(|l| l as u32);
         let mapped_filter = filter.map(|f| serde_json::to_string(&f).unwrap());
         self.client
@@ -165,10 +177,13 @@ impl TableProvider for DeltaSharingTable {
     }
 
     fn constraints(&self) -> Option<&Constraints> {
+        // TODO: can primary key constraints be derived from metadata?
         None
     }
 
     fn table_type(&self) -> TableType {
+        // TODO: view sharing exists in Databricks. Does it even matter for this function?
+        // The tables are read-only anyway
         TableType::Base
     }
 
@@ -181,6 +196,7 @@ impl TableProvider for DeltaSharingTable {
     }
 
     fn get_column_default(&self, _column: &str) -> Option<&Expr> {
+        // TODO: Delta Lake specification has generated columns. Should that be plugged in here?
         None
     }
 
@@ -191,8 +207,10 @@ impl TableProvider for DeltaSharingTable {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
+        // how are filters being passed? Is it possible to isolate filters on partition values?
+
         // Convert filters to Delta Sharing filter.
-        // If a filter expression from Datafusion is not supported, than it is omitted from the 
+        // If a filter expression from Datafusion is not supported, than it is omitted from the
         // conjunction.
         let mut supported_ops = filters
             .into_iter()
@@ -221,6 +239,7 @@ impl TableProvider for DeltaSharingTable {
         &self,
         filters: &[&Expr],
     ) -> DataFusionResult<Vec<TableProviderFilterPushDown>> {
+        // TODO: partition filters are exact. differentiate between the two.
         filters
             .iter()
             .map(|f| {

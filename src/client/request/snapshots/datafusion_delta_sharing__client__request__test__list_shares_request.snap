@@ -1,0 +1,11 @@
+---
+source: src/client/request/mod.rs
+expression: into_delta_sharing_client_request(request)
+---
+{
+  "method": "GET",
+  "endpoint": "/shares",
+  "headers": {},
+  "query": null,
+  "body": null
+}
