@@ -23,6 +23,7 @@ const CAPABILITIES: &str = "responseFormat=parquet";
 
 static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
+#[derive(Clone)]
 pub struct RestClient {
     inner: Client,
     profile: Profile,
@@ -37,11 +38,16 @@ impl RestClient {
         }
     }
 
+    pub fn profile(&self) -> &Profile {
+        &self.profile
+    }
+
     pub(crate) async fn send<R: Request>(&self, request: R) -> Result<R::Response, RestClientError>
     where
         RestClientError: From<<<R as Request>::Response as FromResponse>::Error>,
     {
         let url = format!("{}{}", self.profile.endpoint(), request.endpoint());
+        tracing::info!("sending request");
         let response = self
             .inner
             .request(R::HTTP_METHOD, &url)
@@ -56,10 +62,6 @@ impl RestClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            // let text = response.text().await.unwrap_or_default();
-            // println!("status: {}", status);
-            // println!("text: {}", text);
-            // panic!("test");
             let error_response = response
                 .json::<ErrorResponse>()
                 .await
@@ -75,17 +77,17 @@ impl RestClient {
         }
     }
 
-    // pub async fn list_shares_paginated(
-    //     &self,
-    //     max_results: Option<String>,
-    //     page_token: Option<String>,
-    // ) -> Result<ListSharesResponse, RestClientError> {
-    //     let request = ListSharesRequest::builder()
-    //         .maybe_max_results(max_results)
-    //         .maybe_page_token(page_token)
-    //         .build();
-    //     self.send(request).await
-    // }
+    pub async fn list_shares_paginated(
+        &self,
+        max_results: Option<i32>,
+        page_token: Option<String>,
+    ) -> Result<ListSharesResponse, RestClientError> {
+        let request = ListSharesRequest::builder()
+            .maybe_max_results(max_results)
+            .maybe_page_token(page_token)
+            .build();
+        self.send(request).await
+    }
 
     pub async fn get_share(&self, share: String) -> Result<GetShareResponse, RestClientError> {
         let request = GetShareRequest::builder().share_name(share).build();
@@ -152,17 +154,17 @@ impl RestClient {
         self.send(request).await
     }
 
-    pub async fn query_table_metadata(&self) {
-        todo!()
-    }
+    // pub async fn query_table_metadata(&self) {
+    //     todo!()
+    // }
 
-    pub async fn query_table_data(&self) -> Result<(), ()> {
-        todo!()
-    }
+    // pub async fn query_table_data(&self) -> Result<(), ()> {
+    //     todo!()
+    // }
 
-    pub async fn query_table_changes(&self) {
-        todo!()
-    }
+    // pub async fn query_table_changes(&self) {
+    //     todo!()
+    // }
 }
 
 #[async_trait]

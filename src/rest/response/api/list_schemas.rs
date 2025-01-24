@@ -8,14 +8,14 @@ use super::{FromResponse, ParseResponseError};
 
 #[derive(Debug)]
 pub struct ListSchemasResponse {
-    pub items: Vec<model::Schema>,
+    pub items: Vec<model::SchemaInfo>,
     pub next_page_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ListSchemasBody {
-    items: Vec<model::Schema>,
+    items: Vec<model::SchemaInfo>,
     next_page_token: Option<String>,
 }
 

@@ -9,13 +9,13 @@ use super::{FromResponse, ParseResponseError};
 
 #[derive(Debug)]
 pub struct GetShareResponse {
-    pub share: model::Share,
+    pub share: model::ShareInfo,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GetShareBody {
-    share: model::Share,
+    share: model::ShareInfo,
 }
 
 #[async_trait]

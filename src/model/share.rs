@@ -14,12 +14,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Builder)]
 #[serde(rename_all = "camelCase")]
 #[builder(on(String, into))]
-pub struct Share {
+pub struct ShareInfo {
     name: String,
     id: Option<String>,
 }
 
-impl Share {
+impl ShareInfo {
     /// Retrieve the name from `self`.
     ///
     /// # Example
@@ -49,23 +49,23 @@ impl Share {
     }
 }
 
-impl fmt::Display for Share {
+impl fmt::Display for ShareInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
     }
 }
 
-impl FromStr for Share {
+impl FromStr for ShareInfo {
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Share::builder().name(s).build())
+        Ok(ShareInfo::builder().name(s).build())
     }
 }
 
-impl From<String> for Share {
+impl From<String> for ShareInfo {
     fn from(s: String) -> Self {
-        Share::builder().name(s).build()
+        ShareInfo::builder().name(s).build()
     }
 }
 
@@ -75,13 +75,13 @@ mod test {
 
     #[test]
     fn display_share() {
-        let share = Share::builder().name("share").id("1").build();
+        let share = ShareInfo::builder().name("share").id("1").build();
         assert_eq!(format!("{}", share), "share");
     }
 
     #[test]
     fn parse_share() {
-        let share = "share".parse::<Share>().unwrap();
+        let share = "share".parse::<ShareInfo>().unwrap();
         // assert_eq!(share, Share::new("share", None));
         assert!(false)
     }

@@ -10,6 +10,8 @@ use serde::{ser::SerializeStruct, Serialize};
 
 pub(crate) mod error;
 
+pub struct Predicate {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     Column(Column),

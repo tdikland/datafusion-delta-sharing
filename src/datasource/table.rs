@@ -14,26 +14,21 @@ use datafusion::{
 
 use crate::{
     auth::Profile,
-    client::{
-        // action::{File, Metadata, Protocol},
-        client::DeltaSharingClient,
-    },
     error::DeltaSharingError,
-    model::Table,
+    model::action::parquet::File,
+    sdk::{Client, QueryTableDataOpts, TableMetadata, TableName},
 };
 
-use crate::model::action::parquet::ParquetFile;
-use crate::model::action::parquet::ParquetMetadata;
-use crate::model::action::parquet::ParquetProtocol;
-
-use super::{scan_old::DeltaSharingScanBuilder, schema::StructType};
+// use super::schema::StructType;
 use crate::expr::Op;
+
+use super::s::LogicalTableSchema;
 
 /// Builder for [`DeltaSharingTable`]
 #[derive(Debug, Default)]
 pub struct DeltaSharingTableBuilder {
     profile: Option<Profile>,
-    table: Option<Table>,
+    table: Option<TableName>,
 }
 
 impl DeltaSharingTableBuilder {
@@ -49,7 +44,7 @@ impl DeltaSharingTableBuilder {
     }
 
     /// Set the table for the DeltaSharingTable
-    pub fn with_table(mut self, table: Table) -> Self {
+    pub fn with_table(mut self, table: TableName) -> Self {
         self.table = Some(table);
         self
     }
@@ -60,20 +55,17 @@ impl DeltaSharingTableBuilder {
             return Err(DeltaSharingError::other("Missing profile or table"));
         };
 
-        let client = DeltaSharingClient::new(profile);
-        let (protocol, metadata) = client.get_table_metadata(&table).await?;
+        // let table = table.clone().unwrap();
 
-        let parsed_schema: delta_kernel::schema::StructType =
-            serde_json::from_str(metadata.schema_string()).unwrap();
-        // let arrow_schema: arrow_schema::Schema = (&parsed_schema).try_into().unwrap();
-        let s = todo!();
+        let client = Client::new(profile);
+        let table_metadata = client.query_table_metadata(table.clone()).await.unwrap();
+        let table_schema = table_metadata.schema_string().parse().unwrap();
 
         Ok(DeltaSharingTable {
             client,
-            table,
-            schema: s,
-            protocol: protocol,
-            metadata,
+            table: table.clone(),
+            table_metadata,
+            schema: table_schema,
         })
     }
 }
@@ -81,11 +73,10 @@ impl DeltaSharingTableBuilder {
 /// Delta Sharing implementation of [`TableProvider`]`
 #[derive(Debug)]
 pub struct DeltaSharingTable {
-    client: DeltaSharingClient,
-    table: Table,
-    schema: Schema,
-    protocol: ParquetProtocol,
-    metadata: ParquetMetadata,
+    client: Client,
+    table: TableName,
+    table_metadata: TableMetadata,
+    schema: LogicalTableSchema,
 }
 
 impl DeltaSharingTable {
@@ -108,7 +99,7 @@ impl DeltaSharingTable {
     pub async fn try_from_str(s: &str) -> Result<Self, DeltaSharingError> {
         let (profile_path, table_fqn) = s.split_once('#').ok_or(DeltaSharingError::other("The connection string should be formatted as `<path/to/profile>#<share_name>.<schema_name>.<table_name>"))?;
         let profile = Profile::try_from_path(profile_path)?;
-        let table = table_fqn.parse::<Table>()?;
+        let table = table_fqn.try_into().unwrap();
 
         DeltaSharingTableBuilder::new()
             .with_profile(profile)
@@ -117,48 +108,25 @@ impl DeltaSharingTable {
             .await
     }
 
-    // /// Return the [`Protocol`] of the shared table
-    // pub fn protocol(&self) -> &PaProtocol {
-    //     &self.protocol
-    // }
-
-    // /// Return the [`Metadata`] of the shared table
-    // pub fn metadata(&self) -> &Metadata {
-    //     &self.metadata
-    // }
-
-    fn arrow_schema(&self) -> SchemaRef {
-        let s: StructType = serde_json::from_str(self.metadata.schema_string()).unwrap();
-        let fields = s
-            .fields()
-            .iter()
-            .map(|f| f.try_into())
-            .collect::<Result<Vec<Field>, _>>()
-            .unwrap();
-        Arc::new(Schema::new(fields))
-    }
-
-    fn schema(&self) -> Schema {
-        let s: StructType = serde_json::from_str(self.metadata.schema_string()).unwrap();
-        let fields = s
-            .fields()
-            .iter()
-            .map(|f| f.try_into())
-            .collect::<Result<Vec<Field>, _>>()
-            .unwrap();
-        Schema::new(fields)
+    pub fn builder() -> DeltaSharingTableBuilder {
+        DeltaSharingTableBuilder::new()
     }
 
     async fn list_files_for_scan(
         &self,
         filter: Option<Op>,
         limit: Option<usize>,
-    ) -> Result<Vec<ParquetFile>, DeltaSharingError> {
+    ) -> Result<Vec<File>, DeltaSharingError> {
         let mapped_limit = limit.map(|l| l as u32);
         let mapped_filter = filter.map(|f| serde_json::to_string(&f).unwrap());
-        self.client
-            .get_table_data(&self.table, mapped_filter, mapped_limit)
+        let opts = QueryTableDataOpts::default();
+
+        let table_data = self
+            .client
+            .query_table_data(self.table.clone(), opts)
             .await
+            .unwrap();
+        Ok(table_data.into_parquet_files())
     }
 
     fn partition_columns(&self) -> Vec<String> {
@@ -173,7 +141,7 @@ impl TableProvider for DeltaSharingTable {
     }
 
     fn schema(&self) -> SchemaRef {
-        self.arrow_schema()
+        self.schema.as_arrow()
     }
 
     fn constraints(&self) -> Option<&Constraints> {
@@ -207,6 +175,8 @@ impl TableProvider for DeltaSharingTable {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
+        // Split Delta/Parquet into delta scan and parquet scan
+
         // how are filters being passed? Is it possible to isolate filters on partition values?
 
         // Convert filters to Delta Sharing filter.
@@ -214,7 +184,7 @@ impl TableProvider for DeltaSharingTable {
         // conjunction.
         let mut supported_ops = filters
             .into_iter()
-            .filter_map(|filter| Op::try_from_expr(filter, self.arrow_schema()).ok())
+            .filter_map(|filter| Op::try_from_expr(filter, self.schema.as_arrow()).ok())
             .collect::<Vec<_>>();
         let filter = match supported_ops.len() {
             0 => None,
@@ -239,11 +209,11 @@ impl TableProvider for DeltaSharingTable {
         &self,
         filters: &[&Expr],
     ) -> DataFusionResult<Vec<TableProviderFilterPushDown>> {
-        // TODO: partition filters are exact. differentiate between the two.
+        // TODO: partition filters are exact. differentiate between the two?
         filters
             .iter()
             .map(|f| {
-                let op = Op::try_from_expr(f, self.arrow_schema());
+                let op = Op::try_from_expr(f, self.schema());
                 if op.is_ok() {
                     Ok(TableProviderFilterPushDown::Inexact)
                 } else {

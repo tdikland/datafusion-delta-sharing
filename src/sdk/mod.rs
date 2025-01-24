@@ -1,16 +1,19 @@
+use core::fmt;
+use std::convert::Infallible;
+
 use chrono::{DateTime, Utc};
-use error::ClientError;
 use futures::Stream;
 
 use crate::{
     auth::Profile,
     expr::Op,
     model::{
-        action::parquet::{Metadata, Protocol},
-        Schema, Share, Table, TableVersion,
+        action::parquet::{File, Metadata, Protocol},
+        SchemaInfo, ShareInfo, TableInfo, TableVersion,
     },
     rest::{
         self,
+        error::RestClientError,
         request::{self, GetShareRequest},
         response::MetadataResponseLines,
         RestClient,
@@ -20,24 +23,18 @@ use crate::{
 mod error;
 mod pagination;
 
-struct Pagination {
-    max_results: Option<u32>,
-    page_token: Option<String>,
-    done: bool,
-}
+pub use error::ClientError;
+use pagination::{Page, Paginated};
 
-impl Pagination {
-    fn begin() -> Self {
-        Self {
-            max_results: None,
-            page_token: None,
-            done: false,
-        }
-    }
-}
-
+#[derive(Clone)]
 pub struct Client {
     inner: rest::RestClient,
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeltaSharingClient").finish()
+    }
 }
 
 impl Client {
@@ -47,141 +44,107 @@ impl Client {
         }
     }
 
-    pub async fn list_shares(&self) -> impl Stream<Item = Result<Share, ClientError>> {
-        let mut shares: Vec<Result<Share, ClientError>> = vec![];
-        let mut pagination = Pagination::begin();
+    pub fn profile(&self) -> &Profile {
+        self.inner.profile()
+    }
+}
 
-        while !pagination.done {
-            let request = request::ListSharesRequest::builder()
-                .maybe_max_results(pagination.max_results.map(|m| m.try_into().unwrap()))
-                .maybe_page_token(pagination.page_token.clone())
-                .build();
-
-            let response = self.inner.send(request).await;
-            match response {
-                Ok(s) => {
-                    shares.extend(s.items.into_iter().map(Ok));
-                    pagination.page_token = s.next_page_token;
-                    pagination.done = pagination.page_token.is_none();
-                }
-                Err(e) => {
-                    return futures::stream::iter(vec![Err(e.into())]);
-                }
+impl Client {
+    pub async fn list_shares(&self) -> impl Stream<Item = Result<ShareInfo, ClientError>> {
+        let client = self.inner.clone();
+        Paginated::new(move |pagination| {
+            let client = client.clone();
+            async move {
+                let req = request::ListSharesRequest::builder()
+                    .maybe_max_results(pagination.max_results())
+                    .maybe_page_token(pagination.page_token())
+                    .build();
+                client
+                    .send(req)
+                    .await
+                    .map(|res| Page::new(res.items, res.next_page_token))
+                    .map_err(Into::into)
             }
-        }
-
-        futures::stream::iter(shares)
+        })
     }
 
-    pub async fn get_share(
-        &self,
-        share_name: impl Into<String>,
-    ) -> Result<Option<Share>, ClientError> {
-        let request = GetShareRequest::builder()
-            .share_name(share_name.into())
-            .build();
-        let response = self.inner.send(request).await;
-        match response {
-            Ok(r) => Ok(Some(r.share)),
-            Err(e) if e.is_not_found() => Ok(None),
-            Err(e) => Err(e.into()),
+    pub async fn get_share(&self, share: ShareName) -> Result<Option<ShareInfo>, ClientError> {
+        let req = GetShareRequest::builder().share_name(share.name).build();
+        match self.inner.send(req).await {
+            Ok(res) => Ok(Some(res.share)),
+            Err(err) if err.is_not_found() => Ok(None),
+            Err(err) => Err(err.into()),
         }
     }
 
     pub async fn list_schemas(
         &self,
-        share_name: impl Into<String>,
-    ) -> impl Stream<Item = Result<Schema, ClientError>> {
-        let mut schemas: Vec<Result<Schema, ClientError>> = vec![];
-        let mut pagination = Pagination::begin();
-        let share_name = share_name.into();
-
-        while !pagination.done {
-            let request = request::ListSchemasRequest::builder()
-                .share_name(share_name.clone())
-                .maybe_max_results(pagination.max_results.map(|m| m.try_into().unwrap()))
-                .maybe_page_token(pagination.page_token.clone())
-                .build();
-
-            let response = self.inner.send(request).await;
-            match response {
-                Ok(s) => {
-                    schemas.extend(s.items.into_iter().map(Ok));
-                    pagination.page_token = s.next_page_token;
-                    pagination.done = pagination.page_token.is_none();
-                }
-                Err(e) => {
-                    return futures::stream::iter(vec![Err(e.into())]);
-                }
+        share: ShareName,
+    ) -> impl Stream<Item = Result<SchemaInfo, ClientError>> {
+        let client = self.inner.clone();
+        Paginated::new(move |pagination| {
+            let client = client.clone();
+            let share_name = share.name.clone();
+            async move {
+                let request = request::ListSchemasRequest::builder()
+                    .maybe_max_results(pagination.max_results().map(|m| m as i32))
+                    .maybe_page_token(pagination.page_token().clone())
+                    .share_name(share_name.clone())
+                    .build();
+                client
+                    .send(request)
+                    .await
+                    .map(|res| Page::new(res.items, res.next_page_token))
+                    .map_err(Into::into)
             }
-        }
-
-        futures::stream::iter(schemas)
+        })
     }
 
     pub async fn list_tables_in_share(
         &self,
-        share_name: impl Into<String>,
-    ) -> impl Stream<Item = Result<Table, ClientError>> {
-        let mut tables: Vec<Result<Table, ClientError>> = vec![];
-        let mut pagination = Pagination::begin();
-        let share_name = share_name.into();
-
-        while !pagination.done {
-            let request = request::ListTablesInShareRequest::builder()
-                .share_name(share_name.clone())
-                .maybe_max_results(pagination.max_results.map(|m| m.try_into().unwrap()))
-                .maybe_page_token(pagination.page_token.clone())
-                .build();
-
-            let response = self.inner.send(request).await;
-            match response {
-                Ok(s) => {
-                    tables.extend(s.items.into_iter().map(Ok));
-                    pagination.page_token = s.next_page_token;
-                    pagination.done = pagination.page_token.is_none();
-                }
-                Err(e) => {
-                    return futures::stream::iter(vec![Err(e.into())]);
-                }
+        share: ShareName,
+    ) -> impl Stream<Item = Result<TableInfo, ClientError>> {
+        let client = self.inner.clone();
+        Paginated::new(move |pagination| {
+            let client = client.clone();
+            let share_name = share.name.clone();
+            async move {
+                let req = request::ListTablesInShareRequest::builder()
+                    .maybe_max_results(pagination.max_results())
+                    .maybe_page_token(pagination.page_token())
+                    .share_name(share_name)
+                    .build();
+                client
+                    .send(req)
+                    .await
+                    .map(|res| Page::new(res.items, res.next_page_token))
+                    .map_err(Into::into)
             }
-        }
-
-        futures::stream::iter(tables)
+        })
     }
 
     pub async fn list_tables_in_schema(
         &self,
-        share_name: impl Into<String>,
-        schema_name: impl Into<String>,
-    ) -> impl Stream<Item = Result<Table, ClientError>> {
-        let mut tables: Vec<Result<Table, ClientError>> = vec![];
-        let mut pagination = Pagination::begin();
-        let share_name = share_name.into();
-        let schema_name = schema_name.into();
-
-        while !pagination.done {
-            let request = request::ListTablesInSchemaRequest::builder()
-                .share_name(share_name.clone())
-                .schema_name(schema_name.clone())
-                .maybe_max_results(pagination.max_results.map(|m| m.try_into().unwrap()))
-                .maybe_page_token(pagination.page_token.clone())
-                .build();
-
-            let response = self.inner.send(request).await;
-            match response {
-                Ok(s) => {
-                    tables.extend(s.items.into_iter().map(Ok));
-                    pagination.page_token = s.next_page_token;
-                    pagination.done = pagination.page_token.is_none();
-                }
-                Err(e) => {
-                    return futures::stream::iter(vec![Err(e.into())]);
+        schema: SchemaName,
+    ) -> impl Stream<Item = Result<TableInfo, ClientError>> {
+        let client = self.inner.clone();
+        Paginated::new(move |p| {
+            let client = client.clone();
+            let schema = schema.clone();
+            async move {
+                let request = request::ListTablesInSchemaRequest::builder()
+                    .share_name(schema.share_name)
+                    .schema_name(schema.schema_name)
+                    .maybe_max_results(p.max_results())
+                    .maybe_page_token(p.page_token())
+                    .build();
+                let response = client.send(request).await;
+                match response {
+                    Ok(s) => Ok(Page::new(s.items, s.next_page_token)),
+                    Err(e) => Err(e.into()),
                 }
             }
-        }
-
-        futures::stream::iter(tables)
+        })
     }
 
     pub async fn query_table_version(
@@ -206,16 +169,20 @@ impl Client {
         Ok(response.version)
     }
 
-    pub async fn query_table_metadata(
+    pub async fn query_table_metadata<T, E>(
         &self,
-        share_name: impl Into<String>,
-        schema_name: impl Into<String>,
-        table_name: impl Into<String>,
-    ) -> Result<(), ClientError> {
+        table_name: T,
+    ) -> Result<TableMetadata, ClientError>
+    where
+        T: TryInto<TableName, Error = E>,
+        ClientError: From<E>,
+    {
+        let table_name = table_name.try_into()?;
+
         let request = request::QueryTableMetadataRequest::builder()
-            .share_name(share_name.into())
-            .schema_name(schema_name.into())
-            .table_name(table_name.into())
+            .share_name(table_name.share_name)
+            .schema_name(table_name.schema_name)
+            .table_name(table_name.table_name)
             .build();
 
         let response = self.inner.send(request).await?;
@@ -228,62 +195,202 @@ impl Client {
         todo!()
     }
 
-    pub async fn query_table_data(
+    pub async fn query_table_data<T, E>(
         &self,
-        share_name: impl Into<String>,
-        schema_name: impl Into<String>,
-        table_name: impl Into<String>,
+        table: T,
         options: QueryTableDataOpts,
-    ) -> Result<(), ClientError> {
-        // let mut partial_request = request::QueryTableDataRequest::builder()
-        //     .share_name(share_name.into())
-        //     .schema_name(schema_name.into())
-        //     .table_name(table_name.into())
-        //     .maybe_json_predicate_hints(
-        //         options
-        //             .predicate
-        //             .map(|op| serde_json::to_string(&op).unwrap()),
-        //     )
-        //     .maybe_limit_hint(options.limit.map(|limit| limit as i32));
+    ) -> Result<TableData, ClientError>
+    where
+        T: TryInto<TableName, Error = E>,
+        ClientError: From<E>,
+    {
+        let table = table.try_into()?;
 
-        // let request = if let Some(v) = options.version {
-        //     match v {
-        //         QueryTableVersion::PointInTime(table_version_point) => match table_version_point {
-        //             TableVersionPoint::Number(version) => {
-        //                 partial_request.version(version as i64).build()
-        //             }
-        //             TableVersionPoint::Timestamp(timestamp) => {
-        //                 partial_request.timestamp(timestamp.to_rfc3339()).build()
-        //             }
-        //         },
-        //         QueryTableVersion::Range(table_version_range) => match table_version_range {
-        //             TableVersionRange::Version { start, end } => {
-        //                 if let Some(end) = end {
-        //                     partial_request
-        //                         .starting_version(start as i64)
-        //                         .ending_version(end as i64)
-        //                         .build()
-        //                 } else {
-        //                     partial_request.starting_version(start as i64).build()
-        //                 }
-        //             }
-        //             TableVersionRange::Timestamp { .. } => unreachable!(),
-        //         },
-        //     }
-        // } else {
-        //     partial_request.build()
-        // };
+        let mut partial_request = request::QueryTableDataRequest::builder()
+            .share_name(table.share_name)
+            .schema_name(table.schema_name)
+            .table_name(table.table_name)
+            .maybe_json_predicate_hints(
+                options
+                    .predicate
+                    .map(|op| serde_json::to_string(&op).unwrap()),
+            )
+            .maybe_limit_hint(options.limit.map(|limit| limit as i32));
 
-        // let response = self.inner.send(request).await?;
+        let request = if let Some(v) = options.version {
+            match v {
+                QueryTableVersion::PointInTime(table_version_point) => match table_version_point {
+                    TableVersionPoint::Number(version) => {
+                        partial_request.version(version as i64).build()
+                    }
+                    TableVersionPoint::Timestamp(timestamp) => {
+                        partial_request.timestamp(timestamp.to_rfc3339()).build()
+                    }
+                },
+                QueryTableVersion::Range(table_version_range) => match table_version_range {
+                    TableVersionRange::Version { start, end } => {
+                        if let Some(end) = end {
+                            partial_request
+                                .starting_version(start as i64)
+                                .ending_version(end as i64)
+                                .build()
+                        } else {
+                            partial_request.starting_version(start as i64).build()
+                        }
+                    }
+                    TableVersionRange::Timestamp { .. } => unreachable!(),
+                },
+            }
+        } else {
+            partial_request.build()
+        };
+
+        let response = self.inner.send(request).await?;
 
         todo!()
     }
 }
 
+impl From<ParseError> for ClientError {
+    fn from(e: ParseError) -> Self {
+        match e {
+            ParseError::InvalidTableRef => ClientError::InvalidTableRef,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ShareName {
+    name: String,
+}
+
+impl TryFrom<&str> for ShareName {
+    type Error = Infallible;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(Self {
+            name: value.to_owned(),
+        })
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct TableName {
+    share_name: String,
+    schema_name: String,
+    table_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SchemaName {
+    share_name: String,
+    schema_name: String,
+}
+
+#[derive(Debug)]
+pub enum ParseError {
+    InvalidTableRef,
+}
+
+impl TryFrom<String> for TableName {
+    type Error = ParseError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let parts: Vec<&str> = value.split('.').collect();
+        if parts.len() != 3 {
+            return Err(ParseError::InvalidTableRef);
+        }
+
+        Ok(Self {
+            share_name: parts[0].to_string(),
+            schema_name: parts[1].to_string(),
+            table_name: parts[2].to_string(),
+        })
+    }
+}
+
+impl From<&str> for SchemaName {
+    fn from(value: &str) -> Self {
+        let parts: Vec<&str> = value.split('.').collect();
+        Self {
+            share_name: parts[0].to_string(),
+            schema_name: parts[1].to_string(),
+        }
+    }
+}
+
+impl TryFrom<&str> for TableName {
+    type Error = ParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let parts: Vec<&str> = value.split('.').collect();
+        if parts.len() != 3 {
+            return Err(ParseError::InvalidTableRef);
+        }
+
+        Ok(Self {
+            share_name: parts[0].to_string(),
+            schema_name: parts[1].to_string(),
+            table_name: parts[2].to_string(),
+        })
+    }
+}
+
+impl TryFrom<String> for SchemaName {
+    type Error = ParseError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let parts: Vec<&str> = value.split('.').collect();
+        if parts.len() != 2 {
+            return Err(ParseError::InvalidTableRef);
+        }
+
+        Ok(Self {
+            share_name: parts[0].to_string(),
+            schema_name: parts[1].to_string(),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct TableData {
+    version: TableVersion,
+    format: TableDataFormat,
+}
+
+impl TableData {
+    pub fn into_parquet_files(self) -> Vec<File> {
+        match self.format {
+            TableDataFormat::Parquet {
+                protocol,
+                metadata,
+                files,
+            } => files,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum TableDataFormat {
+    Parquet {
+        protocol: Protocol,
+        metadata: Metadata,
+        files: Vec<File>,
+    },
+}
+
 #[derive(Debug)]
 pub struct TableMetadata {
-    pub version: TableVersion,
-    pub format: TableMetadataFormat,
+    version: TableVersion,
+    format: TableMetadataFormat,
+}
+
+impl TableMetadata {
+    pub fn schema_string(&self) -> &str {
+        match &self.format {
+            TableMetadataFormat::Parquet { metadata, .. } => metadata.schema_string(),
+        }
+    }
 }
 
 #[derive(Debug)]

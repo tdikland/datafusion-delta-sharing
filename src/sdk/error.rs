@@ -1,10 +1,12 @@
 use core::fmt;
+use std::convert::Infallible;
 
 use crate::rest::error::RestClientError;
 
 #[derive(Debug)]
 pub enum ClientError {
     RestClientError(RestClientError),
+    InvalidTableRef,
 }
 
 impl From<RestClientError> for ClientError {
@@ -16,6 +18,12 @@ impl From<RestClientError> for ClientError {
 impl fmt::Display for ClientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         todo!()
+    }
+}
+
+impl From<Infallible> for ClientError {
+    fn from(_: Infallible) -> Self {
+        unreachable!()
     }
 }
 

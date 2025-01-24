@@ -112,6 +112,14 @@ impl Display for DeltaSharingErrorKind {
 
 impl Error for DeltaSharingError {}
 
+use crate::sdk::ClientError;
+
+impl From<ClientError> for DeltaSharingError {
+    fn from(err: ClientError) -> Self {
+        todo!()
+    }
+}
+
 impl From<reqwest::Error> for DeltaSharingError {
     fn from(value: reqwest::Error) -> Self {
         if value.is_decode() {

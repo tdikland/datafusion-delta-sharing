@@ -1,6 +1,5 @@
 use std::{
     future::Future,
-    marker::PhantomData,
     pin::{pin, Pin},
     task::{ready, Context, Poll},
 };
@@ -214,24 +213,5 @@ where
                 StateProj::End => return Poll::Ready(None),
             }
         }
-    }
-}
-
-pin_project! {
-    pub struct PP<R, S> {
-        #[pin]
-        inner: S,
-        _p: PhantomData<R>
-    }
-}
-
-impl<T, E, R, S> Stream for PP<R, S>
-where
-    S: Stream<Item = Result<T, E>>,
-{
-    type Item = Result<T, E>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().inner.poll_next(cx)
     }
 }

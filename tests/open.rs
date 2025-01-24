@@ -1,6 +1,6 @@
 use datafusion_delta_sharing::{
     auth::Profile,
-    model::{Schema, Share, Table},
+    model::{SchemaInfo, ShareInfo, TableInfo},
     sdk::{Client, QueryTableVersionOpts},
 };
 
@@ -13,8 +13,8 @@ async fn list_shares() {
     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
     let client = Client::new(profile);
 
-    let shares: Vec<Share> = client.list_shares().await.try_collect().await.unwrap();
-    let expected = vec![Share::builder().name("delta_sharing").build()];
+    let shares: Vec<ShareInfo> = client.list_shares().await.try_collect().await.unwrap();
+    let expected = vec![ShareInfo::builder().name("delta_sharing").build()];
     assert_eq!(shares, expected);
 }
 
@@ -24,11 +24,17 @@ async fn get_share() {
     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
     let client = Client::new(profile);
 
-    let share = client.get_share("delta_sharing").await.unwrap();
-    let expected = Some(Share::builder().name("delta_sharing").build());
+    let share = client
+        .get_share("delta_sharing".try_into().unwrap())
+        .await
+        .unwrap();
+    let expected = Some(ShareInfo::builder().name("delta_sharing").build());
     assert_eq!(share, expected);
 
-    let share = client.get_share("non_existent").await.unwrap();
+    let share = client
+        .get_share("non_existent".try_into().unwrap())
+        .await
+        .unwrap();
     let expected = None;
     assert_eq!(share, expected);
 }
@@ -39,13 +45,13 @@ async fn list_schemas() {
     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
     let client = Client::new(profile);
 
-    let schemas: Vec<Schema> = client
-        .list_schemas("delta_sharing")
+    let schemas: Vec<SchemaInfo> = client
+        .list_schemas("delta_sharing".try_into().unwrap())
         .await
         .try_collect()
         .await
         .unwrap();
-    let expected = vec![Schema::new("delta_sharing", "default")];
+    let expected = vec![SchemaInfo::new("delta_sharing", "default")];
     assert_eq!(schemas, expected);
 }
 
@@ -56,9 +62,9 @@ async fn list_tables_in_share() {
     let client = Client::new(profile);
 
     let shares: Vec<String> = client
-        .list_tables_in_share("delta_sharing")
+        .list_tables_in_share("delta_sharing".try_into().unwrap())
         .await
-        .try_collect::<Vec<Table>>()
+        .try_collect::<Vec<TableInfo>>()
         .await
         .unwrap()
         .into_iter()
@@ -76,6 +82,7 @@ async fn list_tables_in_share() {
     .to_vec();
 
     assert_eq!(shares, expected_tables);
+    assert!(false);
 }
 
 #[traced_test]
@@ -85,9 +92,9 @@ async fn list_tables_in_schema() {
     let client = Client::new(profile);
 
     let shares: Vec<String> = client
-        .list_tables_in_schema("delta_sharing", "default")
+        .list_tables_in_schema("delta_sharing.default".try_into().unwrap())
         .await
-        .try_collect::<Vec<Table>>()
+        .try_collect::<Vec<TableInfo>>()
         .await
         .unwrap()
         .into_iter()
@@ -129,7 +136,7 @@ async fn query_table_metadata() {
     let client = Client::new(profile);
 
     let metadata = client
-        .query_table_metadata("delta_sharing", "default", "owid-covid-data")
+        .query_table_metadata("delta_sharing.default.owid-covid-data")
         .await;
     assert!(metadata.is_ok());
 }

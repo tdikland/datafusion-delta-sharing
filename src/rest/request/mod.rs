@@ -2,6 +2,8 @@ use std::borrow::Cow;
 
 use bon::Builder;
 use http::{HeaderMap, Method};
+use reqwest::Body;
+// use reqwest::Request;
 use serde::Serialize;
 
 use super::response::{
@@ -9,6 +11,23 @@ use super::response::{
     QueryTableChangesResponse, QueryTableDataResponse, QueryTableMetadataResponse,
     QueryTableVersionResponse,
 };
+
+// mod api;
+
+trait IntoRequest<T>: Sized {
+    type Error;
+    type Response: FromResponse;
+
+    fn into_request(self) -> http::Request<T>;
+}
+
+// fn exec<R: IntoRequest>(client: reqwest::Client, req: R) {
+//     let r: reqwest::Request = req
+//         .into_request()
+//         .map(|body| serde_json::to_string(&body).unwrap())
+//         .try_into()
+//         .unwrap();
+// }
 
 pub(crate) trait Request
 where
@@ -36,7 +55,7 @@ where
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-//// LIST SHARES REQUEST                                                    ////
+// LIST SHARES REQUEST
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Builder)]

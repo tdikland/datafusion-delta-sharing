@@ -37,12 +37,13 @@ use datafusion::{
     common::DataFusionError,
     datasource::TableProvider,
 };
+use futures::TryStreamExt;
 
 use crate::{
-    client::DeltaSharingClient,
+    auth::Profile,
     datasource::DeltaSharingTableBuilder,
-    profile::Profile,
-    securable::{Share, Table},
+    model::{Share, Table},
+    sdk::Client,
     DeltaSharingError,
 };
 
@@ -74,8 +75,8 @@ impl DeltaSharingCatalogList {
     /// # Ok(()) }
     /// ```
     pub async fn try_new(profile: Profile) -> Result<Self, DeltaSharingError> {
-        let client = DeltaSharingClient::new(profile.clone());
-        let shares = client.list_shares().await?;
+        let client = Client::new(profile.clone());
+        let shares = client.list_shares().await.try_collect::<Vec<_>>().await?;
 
         let mut share_map: HashMap<String, Arc<dyn CatalogProvider>> =
             HashMap::with_capacity(shares.len());
@@ -140,11 +141,16 @@ impl DeltaSharingCatalog {
     /// # Ok(()) }
     /// ```
     pub async fn try_new(profile: Profile, share_name: &str) -> Result<Self, DeltaSharingError> {
-        let client = DeltaSharingClient::new(profile);
+        let client = Client::new(profile);
 
-        let share = Share::new(share_name, None);
+        let share = Share::builder().name(share_name).build();
         let mut schemas = HashMap::new();
-        for table in client.list_all_tables(&share).await? {
+        for table in client
+            .list_tables_in_share(share_name)
+            .await
+            .try_collect::<Vec<_>>()
+            .await?
+        {
             let schema_provider = schemas
                 .entry(table.schema_name().to_string())
                 .or_insert_with_key(|schema_name| {
@@ -183,14 +189,14 @@ impl CatalogProvider for DeltaSharingCatalog {
 /// Datafusion [`SchemaProvider`] implementation for Delta Sharing.
 #[derive(Debug)]
 pub struct DeltaSharingSchema {
-    client: DeltaSharingClient,
+    client: Client,
     share_name: String,
     schema_name: String,
     table_names: Vec<String>,
 }
 
 impl DeltaSharingSchema {
-    fn new(client: DeltaSharingClient, share_name: String, schema_name: String) -> Self {
+    fn new(client: Client, share_name: String, schema_name: String) -> Self {
         Self {
             client,
             share_name,
@@ -211,10 +217,13 @@ impl SchemaProvider for DeltaSharingSchema {
     }
 
     async fn table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>, DataFusionError> {
-        let table = Table::new(&self.share_name, &self.schema_name, name, None, None);
+        let table_name = format!("{}.{}.{}", self.share_name, self.schema_name, name)
+            .try_into()
+            .expect("valid table name");
+
         let provider = DeltaSharingTableBuilder::new()
             .with_profile(self.client.profile().clone())
-            .with_table(table)
+            .with_table(table_name)
             .build()
             .await?;
         Ok(Some(Arc::new(provider)))

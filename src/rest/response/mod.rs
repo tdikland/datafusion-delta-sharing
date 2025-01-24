@@ -1,5 +1,6 @@
 use core::fmt;
 
+use async_trait::async_trait;
 use reqwest::Response;
 
 mod api;
@@ -19,6 +20,7 @@ mod util;
 pub use api::*;
 
 pub use error::ErrorResponse;
+use serde::{de::DeserializeOwned, Deserialize};
 
 const DELTA_TABLE_VERSION_HEADER: &'static str = "Delta-Table-Version";
 
@@ -27,6 +29,16 @@ pub(crate) trait FromResponse: Sized {
     type Error;
 
     async fn parse(res: Response) -> Result<Self, Self::Error>;
+}
+
+#[async_trait]
+trait FromHttpResponse<T>: Sized
+where
+    T: http_body::Body,
+{
+    type Error;
+
+    async fn from_response(response: http::Response<T>) -> Result<Self, Self::Error>;
 }
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;

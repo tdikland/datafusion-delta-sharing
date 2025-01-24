@@ -26,12 +26,9 @@
 // #![warn(missing_docs)]
 
 // pub mod catalog;
-// pub mod client;
 // pub mod datasource;
 pub mod error;
 pub mod expr;
-// pub mod profile;
-// pub mod securable;
 
 pub mod auth;
 pub mod model;
@@ -40,6 +37,6 @@ pub mod sdk;
 
 pub use sdk::Client;
 
+pub use auth::Profile;
 // pub use datasource::DeltaSharingTable;
-// pub use error::{DeltaSharingError, DeltaSharingErrorKind};
-// pub use profile::Profile;
+pub use error::{DeltaSharingError, DeltaSharingErrorKind};

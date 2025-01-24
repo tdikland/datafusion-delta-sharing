@@ -7,7 +7,9 @@ use datafusion::{
 
 // mod file_stream;
 // mod file_reader;
-mod schema;
+// mod parquet;
+// mod schema;
+
 
 
 #[derive(Debug)]

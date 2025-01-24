@@ -12,7 +12,7 @@ mod share;
 mod table;
 mod version;
 
-pub use share::Share;
+pub use share::ShareInfo;
 pub use version::TableVersion;
 
 /// The type of a schema as defined in the Delta Sharing protocol.
@@ -21,12 +21,12 @@ pub use version::TableVersion;
 /// tables. A schema is defined within the context of a [`Share`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
-pub struct Schema {
+pub struct SchemaInfo {
     share: String,
     name: String,
 }
 
-impl Schema {
+impl SchemaInfo {
     /// Create a new `Schema` with the given [`Share`], `name` and `id`.
     pub fn new(share_name: impl Into<String>, schema_name: impl Into<String>) -> Self {
         Self {
@@ -64,19 +64,19 @@ impl Schema {
     }
 }
 
-impl Display for Schema {
+impl Display for SchemaInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}", self.share_name(), self.name())
     }
 }
 
-impl FromStr for Schema {
+impl FromStr for SchemaInfo {
     type Err = DeltaSharingError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts = s.split('.').collect::<Vec<_>>();
         if parts.len() == 2 {
-            Ok(Schema::new(parts[0], parts[1]))
+            Ok(SchemaInfo::new(parts[0], parts[1]))
         } else {
             Err(DeltaSharingError::parse_securable(
                 "Schema must be of the form <share>.<schema>",
@@ -91,7 +91,7 @@ impl FromStr for Schema {
 /// table is defined within the context of a [`Schema`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
-pub struct Table {
+pub struct TableInfo {
     name: String,
     schema: String,
     share: String,
@@ -99,7 +99,7 @@ pub struct Table {
     id: Option<String>,
 }
 
-impl Table {
+impl TableInfo {
     /// Create a new `Table` with the given [`Schema`], `name`, `storage_path`,
     ///  `table_id` and `table_format`. Whenever the `table_id` is `None`, it
     /// will default to `DELTA`
@@ -202,7 +202,7 @@ impl Table {
     }
 }
 
-impl Display for Table {
+impl Display for TableInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -214,13 +214,13 @@ impl Display for Table {
     }
 }
 
-impl FromStr for Table {
+impl FromStr for TableInfo {
     type Err = DeltaSharingError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts = s.split('.').collect::<Vec<_>>();
         if parts.len() == 3 {
-            Ok(Table::new(parts[0], parts[1], parts[2], None, None))
+            Ok(TableInfo::new(parts[0], parts[1], parts[2], None, None))
         } else {
             Err(DeltaSharingError::parse_securable(
                 "Table must be of the form <share>.<schema>.<table>",
@@ -235,25 +235,28 @@ mod tests {
 
     #[test]
     fn display_schema() {
-        let schema = Schema::new("share", "schema");
+        let schema = SchemaInfo::new("share", "schema");
         assert_eq!(format!("{}", schema), "share.schema");
     }
 
     #[test]
     fn parse_schema() {
-        let schema = "share.schema".parse::<Schema>().unwrap();
-        assert_eq!(schema, Schema::new("share", "schema"));
+        let schema = "share.schema".parse::<SchemaInfo>().unwrap();
+        assert_eq!(schema, SchemaInfo::new("share", "schema"));
     }
 
     #[test]
     fn display_table() {
-        let table = Table::new("share", "schema", "table", None, None);
+        let table = TableInfo::new("share", "schema", "table", None, None);
         assert_eq!(format!("{}", table), "share.schema.table");
     }
 
     #[test]
     fn parse_table() {
-        let table = "share.schema.table".parse::<Table>().unwrap();
-        assert_eq!(table, Table::new("share", "schema", "table", None, None));
+        let table = "share.schema.table".parse::<TableInfo>().unwrap();
+        assert_eq!(
+            table,
+            TableInfo::new("share", "schema", "table", None, None)
+        );
     }
 }
