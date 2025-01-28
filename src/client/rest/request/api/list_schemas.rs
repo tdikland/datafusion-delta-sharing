@@ -1,22 +1,21 @@
 use bon::Builder;
 use url::Url;
 
-use super::IntoRequest;
-use crate::rest::{request::error::RequestBuilderError, response::ListTablesResponse};
+use super::response::ListSchemasResponse;
+use super::{IntoRequest, RequestBuilderError};
 
 #[derive(Debug, Builder)]
-pub struct ListTablesInSchemaRequest {
+pub struct ListSchemasRequest {
     url_prefix: String,
     share: String,
-    schema: String,
     max_results: Option<i32>,
     page_token: Option<String>,
 }
 
-impl IntoRequest for ListTablesInSchemaRequest {
+impl IntoRequest for ListSchemasRequest {
     type Body = ();
     type Error = RequestBuilderError;
-    type Response = ListTablesResponse;
+    type Response = ListSchemasResponse;
 
     fn into_request(self) -> Result<http::Request<Self::Body>, Self::Error> {
         let mut base_url = self.url_prefix.parse::<Url>().unwrap();
@@ -25,9 +24,7 @@ impl IntoRequest for ListTablesInSchemaRequest {
             .unwrap()
             .push("shares")
             .push(&self.share)
-            .push("schemas")
-            .push(&self.schema)
-            .push("tables");
+            .push("schemas");
         if self.max_results.is_some() || self.page_token.is_some() {
             let mut query_pairs = base_url.query_pairs_mut();
             if let Some(max) = self.max_results {
@@ -51,10 +48,9 @@ mod test {
 
     #[test]
     fn example() {
-        let req = ListTablesInSchemaRequest::builder()
+        let req = ListSchemasRequest::builder()
             .url_prefix(String::from("https://server.com"))
             .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
             .max_results(1)
             .page_token(String::from("token"))
             .build()
@@ -62,10 +58,7 @@ mod test {
             .unwrap();
 
         assert_eq!(req.method(), Method::GET);
-        assert_eq!(
-            req.uri().path(),
-            "/shares/test_share/schemas/test_schema/tables"
-        );
+        assert_eq!(req.uri().path(), "/shares/test_share/schemas");
         assert_eq!(req.uri().query(), Some("maxResults=1&pageToken=token"));
         assert_eq!(req.version(), Version::HTTP_11);
         assert!(req.headers().is_empty());
@@ -74,39 +67,35 @@ mod test {
 
     #[test]
     fn pagination_params() {
-        let req_no_params = ListTablesInSchemaRequest::builder()
+        let req_no_params = ListSchemasRequest::builder()
             .url_prefix(String::from("https://server.com"))
             .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
             .build()
             .into_request()
             .unwrap();
         assert_eq!(req_no_params.uri().query(), None);
 
-        let req_only_max_results = ListTablesInSchemaRequest::builder()
+        let req_only_max_results = ListSchemasRequest::builder()
             .url_prefix(String::from("https://server.com"))
             .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
             .max_results(100)
             .build()
             .into_request()
             .unwrap();
         assert_eq!(req_only_max_results.uri().query(), Some("maxResults=100"));
 
-        let req_only_page_token = ListTablesInSchemaRequest::builder()
+        let req_only_page_token = ListSchemasRequest::builder()
             .url_prefix(String::from("https://server.com"))
             .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
             .page_token(String::from("foo"))
             .build()
             .into_request()
             .unwrap();
         assert_eq!(req_only_page_token.uri().query(), Some("pageToken=foo"));
 
-        let req_both_params = ListTablesInSchemaRequest::builder()
+        let req_both_params = ListSchemasRequest::builder()
             .url_prefix(String::from("https://server.com"))
             .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
             .page_token(String::from("foo"))
             .max_results(100)
             .build()

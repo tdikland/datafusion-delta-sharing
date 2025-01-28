@@ -41,9 +41,9 @@ use futures::TryStreamExt;
 
 use crate::{
     auth::Profile,
+    client::{client::ShareName, Client},
     datasource::DeltaSharingTableBuilder,
     model::{ShareInfo, TableInfo},
-    sdk::{Client, ShareName},
     DeltaSharingError,
 };
 

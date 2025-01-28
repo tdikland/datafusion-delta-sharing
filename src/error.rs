@@ -112,7 +112,7 @@ impl Display for DeltaSharingErrorKind {
 
 impl Error for DeltaSharingError {}
 
-use crate::sdk::ClientError;
+use crate::client::error::ClientError;
 
 impl From<ClientError> for DeltaSharingError {
     fn from(err: ClientError) -> Self {

@@ -1,8 +1,8 @@
 use bon::Builder;
 use url::Url;
 
-use super::IntoRequest;
-use crate::rest::{request::error::RequestBuilderError, response::ListSharesResponse};
+use super::response::ListSharesResponse;
+use super::{IntoRequest, RequestBuilderError};
 
 #[derive(Debug, Builder)]
 pub struct ListSharesRequest {

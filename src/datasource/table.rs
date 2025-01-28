@@ -14,9 +14,9 @@ use datafusion::{
 
 use crate::{
     auth::Profile,
+    client::{client::QueryTableDataOpts, client::TableMetadata, client::TableName, Client},
     error::DeltaSharingError,
     model::action::parquet::File,
-    sdk::{Client, QueryTableDataOpts, TableMetadata, TableName},
 };
 
 // use super::schema::StructType;

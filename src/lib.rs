@@ -26,16 +26,15 @@
 // #![warn(missing_docs)]
 
 pub mod catalog;
+pub mod client;
 pub mod datasource;
 pub mod error;
 pub mod expr;
 
 pub mod auth;
 pub mod model;
-pub mod rest;
-pub mod sdk;
 
 pub use auth::Profile;
+pub use client::Client;
 pub use datasource::DeltaSharingTable;
 pub use error::{DeltaSharingError, DeltaSharingErrorKind};
-pub use sdk::Client;

@@ -1,7 +1,7 @@
 use datafusion_delta_sharing::{
     auth::Profile,
+    client::{client::QueryTableVersionOpts, Client},
     model::{SchemaInfo, ShareInfo, TableInfo},
-    sdk::{Client, QueryTableVersionOpts},
 };
 
 use futures::TryStreamExt;

@@ -1,11 +1,8 @@
 use bon::Builder;
 use url::Url;
 
-use super::IntoRequest;
-use crate::rest::{
-    request::error::RequestBuilderError,
-    response::{QueryTableChangesResponse, QueryTableMetadataResponse},
-};
+use super::response::QueryTableChangesResponse;
+use super::{IntoRequest, RequestBuilderError};
 
 const DELTA_SHARING_CAPABILITIES_HEADERNAME: &str = "delta-sharing-capabilities";
 

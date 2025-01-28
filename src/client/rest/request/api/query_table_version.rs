@@ -1,24 +1,22 @@
 use bon::Builder;
 use url::Url;
 
-use super::IntoRequest;
-use crate::rest::{request::error::RequestBuilderError, response::QueryTableMetadataResponse};
-
-const DELTA_SHARING_CAPABILITIES_HEADERNAME: &str = "delta-sharing-capabilities";
+use super::response::QueryTableVersionResponse;
+use super::{IntoRequest, RequestBuilderError};
 
 #[derive(Debug, Builder)]
-pub struct QueryTableMetadataRequest {
+pub struct QueryTableVersionRequest {
     url_prefix: String,
     share: String,
     schema: String,
     table: String,
-    capabilities: Option<String>,
+    starting_timestamp: Option<String>,
 }
 
-impl IntoRequest for QueryTableMetadataRequest {
+impl IntoRequest for QueryTableVersionRequest {
     type Body = ();
     type Error = RequestBuilderError;
-    type Response = QueryTableMetadataResponse;
+    type Response = QueryTableVersionResponse;
 
     fn into_request(self) -> Result<http::Request<Self::Body>, Self::Error> {
         let mut base_url = self.url_prefix.parse::<Url>().unwrap();
@@ -31,13 +29,16 @@ impl IntoRequest for QueryTableMetadataRequest {
             .push(&self.schema)
             .push("tables")
             .push(&self.table)
-            .push("metadata");
+            .push("version");
 
-        let mut req = http::Request::builder().uri(base_url.to_string());
-        if let Some(cap) = self.capabilities {
-            req = req.header(DELTA_SHARING_CAPABILITIES_HEADERNAME, cap);
+        if self.starting_timestamp.is_some() {
+            let mut query_pairs = base_url.query_pairs_mut();
+            if let Some(ts) = self.starting_timestamp {
+                query_pairs.append_pair("startingTimestamp", &ts);
+            }
         }
 
+        let req = http::Request::builder().uri(base_url.to_string());
         Ok(req.body(()).expect("valid"))
     }
 }
@@ -50,11 +51,12 @@ mod test {
 
     #[test]
     fn example() {
-        let req = QueryTableMetadataRequest::builder()
+        let req = QueryTableVersionRequest::builder()
             .url_prefix(String::from("https://server.com"))
             .share(String::from("test_share"))
             .schema(String::from("test_schema"))
             .table(String::from("test_table"))
+            .starting_timestamp(String::from("2022-01-01T00:00:00Z"))
             .build()
             .into_request()
             .unwrap();
@@ -62,34 +64,28 @@ mod test {
         assert_eq!(req.method(), Method::GET);
         assert_eq!(
             req.uri().path(),
-            "/shares/test_share/schemas/test_schema/tables/test_table/metadata"
+            "/shares/test_share/schemas/test_schema/tables/test_table/version"
         );
-        assert_eq!(req.uri().query(), None);
+        assert_eq!(
+            req.uri().query(),
+            Some("startingTimestamp=2022-01-01T00%3A00%3A00Z")
+        );
         assert_eq!(req.version(), Version::HTTP_11);
         assert!(req.headers().is_empty());
         assert_eq!(req.body(), &());
     }
 
     #[test]
-    fn with_capabilities() {
-        let req = QueryTableMetadataRequest::builder()
+    fn without_starting_timestamp() {
+        let req = QueryTableVersionRequest::builder()
             .url_prefix(String::from("https://server.com"))
             .share(String::from("test_share"))
             .schema(String::from("test_schema"))
             .table(String::from("test_table"))
-            .capabilities(String::from(
-                "responseformat=delta;readerfeatures=deletionvectors",
-            ))
             .build()
             .into_request()
             .unwrap();
 
-        assert_eq!(req.headers().len(), 1);
-        assert_eq!(
-            req.headers()
-                .get("delta-sharing-capabilities")
-                .map(|v| v.to_str().unwrap()),
-            Some("responseformat=delta;readerfeatures=deletionvectors")
-        );
+        assert_eq!(req.uri().query(), None);
     }
 }

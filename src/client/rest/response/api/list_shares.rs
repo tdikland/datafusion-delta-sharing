@@ -5,7 +5,6 @@ use reqwest::Response;
 use serde::Deserialize;
 
 use crate::model;
-use crate::rest::response::FromHttpResponse;
 
 use super::util::has_json_content_type;
 use super::{FromResponse, ParseResponseError};

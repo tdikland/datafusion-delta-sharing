@@ -1,17 +1,14 @@
 use async_trait::async_trait;
 use reqwest::Response;
 
-use crate::{
-    model::TableVersion,
-    rest::response::{
-        line::{DeltaResponseLine, ParquetResponseLine},
-        util::second_line_is_metadata,
-    },
-};
-
 use super::line::ResponseLine;
 use super::util::{extract_delta_table_version, first_line_is_protocol, has_ndjson_content_type};
+use super::{
+    line::{DeltaResponseLine, ParquetResponseLine},
+    util::second_line_is_metadata,
+};
 use super::{FromResponse, ParseResponseError};
+use crate::model::TableVersion;
 
 pub struct QueryTableMetadataResponse {
     pub version: TableVersion,

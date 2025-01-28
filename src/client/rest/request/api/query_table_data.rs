@@ -3,8 +3,8 @@ use http::{header::CONTENT_TYPE, Method};
 use serde::Serialize;
 use url::Url;
 
+use super::response::QueryTableDataResponse;
 use super::{IntoRequest, RequestBuilderError};
-use crate::rest::response::QueryTableDataResponse;
 
 const DELTA_SHARING_CAPABILITIES_HEADERNAME: &str = "delta-sharing-capabilities";
 

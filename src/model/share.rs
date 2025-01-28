@@ -82,7 +82,12 @@ mod test {
     #[test]
     fn parse_share() {
         let share = "share".parse::<ShareInfo>().unwrap();
-        // assert_eq!(share, Share::new("share", None));
-        assert!(false)
+        assert_eq!(
+            share,
+            ShareInfo {
+                name: String::from("share"),
+                id: None
+            }
+        );
     }
 }
