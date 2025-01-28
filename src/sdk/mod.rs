@@ -3,6 +3,7 @@ use std::convert::Infallible;
 
 use chrono::{DateTime, Utc};
 use futures::Stream;
+use tracing::instrument;
 
 use crate::{
     auth::Profile,
@@ -15,7 +16,7 @@ use crate::{
         self,
         error::RestClientError,
         request::{self, GetShareRequest},
-        response::MetadataResponseLines,
+        response::{MetadataResponseLines, TableDataResponseLines},
         RestClient,
     },
 };
@@ -50,6 +51,7 @@ impl Client {
 }
 
 impl Client {
+    #[instrument(level = "debug", skip(self))]
     pub async fn list_shares(&self) -> impl Stream<Item = Result<ShareInfo, ClientError>> {
         let client = self.inner.clone();
         Paginated::new(move |pagination| {
@@ -68,6 +70,7 @@ impl Client {
         })
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn get_share(&self, share: ShareName) -> Result<Option<ShareInfo>, ClientError> {
         let req = GetShareRequest::builder().share_name(share.name).build();
         match self.inner.send(req).await {
@@ -77,6 +80,7 @@ impl Client {
         }
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn list_schemas(
         &self,
         share: ShareName,
@@ -100,6 +104,7 @@ impl Client {
         })
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn list_tables_in_share(
         &self,
         share: ShareName,
@@ -123,6 +128,7 @@ impl Client {
         })
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn list_tables_in_schema(
         &self,
         schema: SchemaName,
@@ -147,17 +153,16 @@ impl Client {
         })
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn query_table_version(
         &self,
-        share_name: impl Into<String>,
-        schema_name: impl Into<String>,
-        table_name: impl Into<String>,
+        table_name: TableName,
         opts: &QueryTableVersionOpts,
     ) -> Result<TableVersion, ClientError> {
         let partial_request = request::QueryTableVersionRequest::builder()
-            .share_name(share_name.into())
-            .schema_name(schema_name.into())
-            .table_name(table_name.into());
+            .share_name(table_name.share_name.into())
+            .schema_name(table_name.schema_name.into())
+            .table_name(table_name.table_name.into());
 
         let request = if let Some(ts) = opts.timestamp {
             partial_request.starting_timestamp(ts.to_rfc3339()).build()
@@ -169,16 +174,11 @@ impl Client {
         Ok(response.version)
     }
 
-    pub async fn query_table_metadata<T, E>(
+    #[instrument(level = "debug", skip(self))]
+    pub async fn query_table_metadata(
         &self,
-        table_name: T,
-    ) -> Result<TableMetadata, ClientError>
-    where
-        T: TryInto<TableName, Error = E>,
-        ClientError: From<E>,
-    {
-        let table_name = table_name.try_into()?;
-
+        table_name: TableName,
+    ) -> Result<TableMetadata, ClientError> {
         let request = request::QueryTableMetadataRequest::builder()
             .share_name(table_name.share_name)
             .schema_name(table_name.schema_name)
@@ -187,24 +187,29 @@ impl Client {
 
         let response = self.inner.send(request).await?;
         match response.lines {
-            MetadataResponseLines::Parquet(p) => {
-                todo!()
+            MetadataResponseLines::Parquet(lines) => {
+                let mut lines = lines.into_iter();
+                let protocol = lines.next().unwrap().to_protocol().unwrap();
+                let metadata = lines.next().unwrap().to_metadata().unwrap();
+                Ok(TableMetadata {
+                    version: response.version,
+                    format: TableMetadataFormat::Parquet { protocol, metadata },
+                })
             }
             _ => panic!(),
         }
-        todo!()
     }
 
-    pub async fn query_table_data<T, E>(
+    #[instrument(level = "debug", skip(self))]
+    pub async fn query_table_data(
         &self,
-        table: T,
+        table: TableName,
         options: QueryTableDataOpts,
     ) -> Result<TableData, ClientError>
-    where
-        T: TryInto<TableName, Error = E>,
-        ClientError: From<E>,
+// T: TryInto<TableName, Error = E>,
+        // ClientError: From<E>,
     {
-        let table = table.try_into()?;
+        // let table = table.try_into()?;
 
         let mut partial_request = request::QueryTableDataRequest::builder()
             .share_name(table.share_name)
@@ -247,14 +252,25 @@ impl Client {
 
         let response = self.inner.send(request).await?;
 
-        todo!()
+        let data = match response.lines {
+            TableDataResponseLines::Parquet(d) => TableData {
+                version: response.version,
+                format: TableDataFormat::Parquet {
+                    protocol: d.protocol,
+                    metadata: d.metadata,
+                    files: d.files,
+                },
+            },
+        };
+        Ok(data)
     }
 }
 
-impl From<ParseError> for ClientError {
-    fn from(e: ParseError) -> Self {
+impl From<ParseNameError> for ClientError {
+    fn from(e: ParseNameError) -> Self {
         match e {
-            ParseError::InvalidTableRef => ClientError::InvalidTableRef,
+            ParseNameError::InvalidTableRef => ClientError::InvalidTableRef,
+            _ => panic!("welp"),
         }
     }
 }
@@ -264,21 +280,40 @@ pub struct ShareName {
     name: String,
 }
 
+impl ShareName {
+    pub fn new(name: String) -> Self {
+        Self { name }
+    }
+}
+
+impl TryFrom<String> for ShareName {
+    type Error = ParseNameError;
+
+    fn try_from(v: String) -> Result<Self, Self::Error> {
+        Ok(Self::new(v))
+    }
+}
+
+impl TryFrom<&String> for ShareName {
+    type Error = ParseNameError;
+
+    fn try_from(value: &String) -> Result<Self, Self::Error> {
+        todo!()
+    }
+}
+
 impl TryFrom<&str> for ShareName {
     type Error = Infallible;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Ok(Self {
-            name: value.to_owned(),
-        })
+        Ok(Self::new(value.to_owned()))
     }
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct TableName {
-    share_name: String,
-    schema_name: String,
-    table_name: String,
+impl fmt::Display for ShareName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -287,24 +322,43 @@ pub struct SchemaName {
     schema_name: String,
 }
 
-#[derive(Debug)]
-pub enum ParseError {
-    InvalidTableRef,
+impl SchemaName {
+    pub fn new(share_name: String, schema_name: String) -> Self {
+        Self {
+            share_name,
+            schema_name,
+        }
+    }
 }
 
-impl TryFrom<String> for TableName {
-    type Error = ParseError;
+impl TryFrom<String> for SchemaName {
+    type Error = ParseNameError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let parts: Vec<&str> = value.split('.').collect();
-        if parts.len() != 3 {
-            return Err(ParseError::InvalidTableRef);
+        if parts.len() != 2 {
+            return Err(ParseNameError::InvalidTableRef);
         }
 
         Ok(Self {
             share_name: parts[0].to_string(),
             schema_name: parts[1].to_string(),
-            table_name: parts[2].to_string(),
+        })
+    }
+}
+
+impl TryFrom<&String> for SchemaName {
+    type Error = ParseNameError;
+
+    fn try_from(value: &String) -> Result<Self, Self::Error> {
+        let parts: Vec<&str> = value.split('.').collect();
+        if parts.len() != 2 {
+            return Err(ParseNameError::InvalidTableRef);
+        }
+
+        Ok(Self {
+            share_name: parts[0].to_string(),
+            schema_name: parts[1].to_string(),
         })
     }
 }
@@ -319,13 +373,20 @@ impl From<&str> for SchemaName {
     }
 }
 
-impl TryFrom<&str> for TableName {
-    type Error = ParseError;
+#[derive(Debug, Default, Clone)]
+pub struct TableName {
+    share_name: String,
+    schema_name: String,
+    table_name: String,
+}
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+impl TryFrom<String> for TableName {
+    type Error = ParseNameError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
         let parts: Vec<&str> = value.split('.').collect();
         if parts.len() != 3 {
-            return Err(ParseError::InvalidTableRef);
+            return Err(ParseNameError::InvalidTableRef);
         }
 
         Ok(Self {
@@ -336,20 +397,45 @@ impl TryFrom<&str> for TableName {
     }
 }
 
-impl TryFrom<String> for SchemaName {
-    type Error = ParseError;
+impl TryFrom<&String> for TableName {
+    type Error = ParseNameError;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+    fn try_from(value: &String) -> Result<Self, Self::Error> {
         let parts: Vec<&str> = value.split('.').collect();
-        if parts.len() != 2 {
-            return Err(ParseError::InvalidTableRef);
+        if parts.len() != 3 {
+            return Err(ParseNameError::InvalidTableRef);
         }
 
         Ok(Self {
             share_name: parts[0].to_string(),
             schema_name: parts[1].to_string(),
+            table_name: parts[2].to_string(),
         })
     }
+}
+
+impl TryFrom<&str> for TableName {
+    type Error = ParseNameError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let parts: Vec<&str> = value.split('.').collect();
+        if parts.len() != 3 {
+            return Err(ParseNameError::InvalidTableRef);
+        }
+
+        Ok(Self {
+            share_name: parts[0].to_string(),
+            schema_name: parts[1].to_string(),
+            table_name: parts[2].to_string(),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseNameError {
+    InvalidShareRef,
+    InvalidSchemaRef,
+    InvalidTableRef,
 }
 
 #[derive(Debug)]
@@ -359,6 +445,10 @@ pub struct TableData {
 }
 
 impl TableData {
+    pub fn is_parquet_format(&self) -> bool {
+        self.format.is_parquet()
+    }
+
     pub fn into_parquet_files(self) -> Vec<File> {
         match self.format {
             TableDataFormat::Parquet {
@@ -377,6 +467,12 @@ pub enum TableDataFormat {
         metadata: Metadata,
         files: Vec<File>,
     },
+}
+
+impl TableDataFormat {
+    pub fn is_parquet(&self) -> bool {
+        matches!(self, Self::Parquet { .. })
+    }
 }
 
 #[derive(Debug)]
@@ -401,23 +497,73 @@ pub enum TableMetadataFormat {
     },
 }
 
+impl TableMetadataFormat {
+    pub fn is_parquet(&self) -> bool {
+        matches!(self, Self::Parquet { .. })
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct QueryTableVersionOpts {
     timestamp: Option<DateTime<Utc>>,
 }
 
-#[derive(Default)]
+impl QueryTableVersionOpts {
+    pub fn new() -> Self {
+        Self { timestamp: None }
+    }
+
+    pub fn with_starting_timestamp(mut self, ts: DateTime<Utc>) -> Self {
+        self.timestamp = Some(ts);
+        self
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct QueryTableDataOpts {
     predicate: Option<Op>,
     limit: Option<u32>,
     version: Option<QueryTableVersion>,
 }
 
+impl QueryTableDataOpts {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_predicate(mut self, predicate: Op) -> Self {
+        self.predicate = Some(predicate);
+        self
+    }
+
+    pub fn with_limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn with_version(mut self, version: QueryTableVersion) -> Self {
+        self.version = Some(version);
+        self
+    }
+}
+
+#[derive(Debug)]
 enum TableVersionPoint {
     Number(u64),
     Timestamp(DateTime<Utc>),
 }
 
+impl TableVersionPoint {
+    pub fn number(version: u64) -> Self {
+        Self::Number(version)
+    }
+
+    pub fn timestamp(ts: DateTime<Utc>) -> Self {
+        Self::Timestamp(ts)
+    }
+}
+
+#[derive(Debug)]
 enum TableVersionRange {
     Version {
         start: u64,
@@ -429,7 +575,36 @@ enum TableVersionRange {
     },
 }
 
+impl TableVersionRange {
+    pub fn version(start: u64, end: Option<u64>) -> Self {
+        Self::Version { start, end }
+    }
+
+    pub fn timestamp(start: DateTime<Utc>, end: Option<DateTime<Utc>>) -> Self {
+        Self::Timestamp { start, end }
+    }
+}
+
+#[derive(Debug)]
 enum QueryTableVersion {
     PointInTime(TableVersionPoint),
     Range(TableVersionRange),
+}
+
+impl QueryTableVersion {
+    pub fn new_numeric_pit(version_number: u64) -> Self {
+        Self::PointInTime(TableVersionPoint::Number(version_number))
+    }
+
+    pub fn new_timestamp_pit(ts: DateTime<Utc>) -> Self {
+        Self::PointInTime(TableVersionPoint::Timestamp(ts))
+    }
+
+    pub fn new_numeric_range(start: u64, end: Option<u64>) -> Self {
+        Self::Range(TableVersionRange::Version { start, end })
+    }
+
+    pub fn new_timestamp_range(start: DateTime<Utc>, end: Option<DateTime<Utc>>) -> Self {
+        Self::Range(TableVersionRange::Timestamp { start, end })
+    }
 }

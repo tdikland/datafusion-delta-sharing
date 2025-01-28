@@ -1,7 +1,0 @@
----
-source: src/rest/request/api/list_shares.rs
-expression: render(&request)
----
-GET https://server.com/api/shares HTTP/1.1
-
-null

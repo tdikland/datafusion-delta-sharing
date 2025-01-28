@@ -42,8 +42,8 @@ use futures::TryStreamExt;
 use crate::{
     auth::Profile,
     datasource::DeltaSharingTableBuilder,
-    model::{Share, Table},
-    sdk::Client,
+    model::{ShareInfo, TableInfo},
+    sdk::{Client, ShareName},
     DeltaSharingError,
 };
 
@@ -141,12 +141,13 @@ impl DeltaSharingCatalog {
     /// # Ok(()) }
     /// ```
     pub async fn try_new(profile: Profile, share_name: &str) -> Result<Self, DeltaSharingError> {
+        let share_name: ShareName = share_name.try_into().unwrap();
         let client = Client::new(profile);
 
-        let share = Share::builder().name(share_name).build();
+        // let share = ShareInfo::builder().name(share_name).build();
         let mut schemas = HashMap::new();
         for table in client
-            .list_tables_in_share(share_name)
+            .list_tables_in_share(share_name.clone())
             .await
             .try_collect::<Vec<_>>()
             .await?

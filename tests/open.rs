@@ -82,7 +82,6 @@ async fn list_tables_in_share() {
     .to_vec();
 
     assert_eq!(shares, expected_tables);
-    assert!(false);
 }
 
 #[traced_test]
@@ -116,14 +115,17 @@ async fn list_tables_in_schema() {
 
 #[traced_test]
 #[tokio::test]
-#[ignore = "head request?"]
+#[ignore = "open sharing server does not impl GET version, only HEAD version"]
 async fn query_table_version() {
     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
     let client = Client::new(profile);
 
     let opts = QueryTableVersionOpts::default();
     let version = client
-        .query_table_version("delta_sharing", "default", "owid-covid-data", &opts)
+        .query_table_version(
+            "delta_sharing.default.owid-covid-data".try_into().unwrap(),
+            &opts,
+        )
         .await
         .unwrap();
     assert_eq!(version.0, 0);
@@ -136,7 +138,7 @@ async fn query_table_metadata() {
     let client = Client::new(profile);
 
     let metadata = client
-        .query_table_metadata("delta_sharing.default.owid-covid-data")
+        .query_table_metadata("delta_sharing.default.owid-covid-data".try_into().unwrap())
         .await;
     assert!(metadata.is_ok());
 }

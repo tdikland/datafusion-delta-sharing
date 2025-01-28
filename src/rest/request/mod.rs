@@ -2,8 +2,6 @@ use std::borrow::Cow;
 
 use bon::Builder;
 use http::{HeaderMap, Method};
-use reqwest::Body;
-// use reqwest::Request;
 use serde::Serialize;
 
 use super::response::{
@@ -12,22 +10,16 @@ use super::response::{
     QueryTableVersionResponse,
 };
 
-// mod api;
+pub mod api;
+pub mod error;
 
-trait IntoRequest<T>: Sized {
+pub(crate) trait IntoRequest: Sized {
+    type Body;
     type Error;
     type Response: FromResponse;
 
-    fn into_request(self) -> http::Request<T>;
+    fn into_request(self) -> Result<http::Request<Self::Body>, Self::Error>;
 }
-
-// fn exec<R: IntoRequest>(client: reqwest::Client, req: R) {
-//     let r: reqwest::Request = req
-//         .into_request()
-//         .map(|body| serde_json::to_string(&body).unwrap())
-//         .try_into()
-//         .unwrap();
-// }
 
 pub(crate) trait Request
 where
@@ -282,7 +274,7 @@ impl Request for QueryTableMetadataRequest {
 
     fn endpoint(&self) -> Cow<'_, str> {
         format!(
-            "/shares/{}/schemas/{}/tables/{}",
+            "/shares/{}/schemas/{}/tables/{}/metadata",
             self.share_name, self.schema_name, self.table_name
         )
         .into()
@@ -325,7 +317,7 @@ impl Request for QueryTableDataRequest {
 
     fn endpoint(&self) -> Cow<'_, str> {
         format!(
-            "/shares/{}/schema/{}/tables/{}/query",
+            "/shares/{}/schemas/{}/tables/{}/query",
             self.share_name, self.schema_name, self.table_name
         )
         .into()

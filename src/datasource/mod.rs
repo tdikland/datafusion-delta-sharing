@@ -23,9 +23,9 @@
 
 mod exec;
 mod reader;
-mod scan;
-mod table;
+// mod scan;
 mod format;
+mod table;
 
 mod s;
 

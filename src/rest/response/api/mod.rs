@@ -16,6 +16,6 @@ pub use list_schemas::ListSchemasResponse;
 pub use list_shares::ListSharesResponse;
 pub use list_tables::ListTablesResponse;
 pub use query_table_changes::QueryTableChangesResponse;
-pub use query_table_data::QueryTableDataResponse;
+pub use query_table_data::{QueryTableDataResponse, TableDataResponseLines};
 pub use query_table_metadata::{MetadataResponseLines, QueryTableMetadataResponse};
 pub use query_table_version::QueryTableVersionResponse;

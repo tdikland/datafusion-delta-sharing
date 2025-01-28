@@ -1,21 +1,91 @@
+use core::fmt;
 use std::{
+    future::Future,
+    ops::Range,
     pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
+    time::Duration,
 };
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
+use bytes::Bytes;
+use chrono::{DateTime, Utc};
 use datafusion::{
     error::DataFusionError,
     execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext},
-    physical_plan::ExecutionPlan,
+    physical_expr::EquivalenceProperties,
+    physical_plan::metrics::ExecutionPlanMetricsSet,
+    physical_plan::{
+        execution_plan::{Boundedness, EmissionType},
+        stream::RecordBatchStreamAdapter,
+        DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
+    },
 };
-use futures::Stream;
-use parquet::arrow::arrow_reader::ArrowReaderMetadata;
+use futures::{future::BoxFuture, stream, FutureExt, Stream, StreamExt, TryStreamExt};
+use http::header::RANGE;
+use parquet::{
+    arrow::{
+        arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder},
+        async_reader::ParquetRecordBatchStream,
+        ParquetRecordBatchStreamBuilder,
+    },
+    errors::ParquetError,
+    file::{
+        metadata::{ParquetMetaData, ParquetMetaDataReader},
+        reader::SerializedFileReader,
+    },
+};
+use reqwest::Client;
+
+use crate::model::action::parquet::File;
 
 pub struct SharedParquetExec {
     client: Client,
+    schema: SchemaRef,
+    properties: PlanProperties,
+    files: Vec<File>,
+}
+
+impl SharedParquetExec {
+    pub fn new(schema: SchemaRef, files: Vec<File>) -> Self {
+        let client = Client::builder()
+            .connect_timeout(Duration::from_secs(1))
+            .timeout(Duration::from_secs(2))
+            .read_timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let props = PlanProperties::new(
+            EquivalenceProperties::new(schema.clone()),
+            Partitioning::UnknownPartitioning(1),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        );
+        Self {
+            client,
+            schema,
+            properties: props,
+            files,
+        }
+    }
+}
+
+impl fmt::Debug for SharedParquetExec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SharedParquetExec")
+            .field("client", &self.client)
+            .finish()
+    }
+}
+
+impl DisplayAs for SharedParquetExec {
+    fn fmt_as(&self, t: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
+        match t {
+            DisplayFormatType::Default => write!(f, "SharedParquetExec"),
+            DisplayFormatType::Verbose => write!(f, "SharedParquetExec"),
+        }
+    }
 }
 
 impl ExecutionPlan for SharedParquetExec {
@@ -27,99 +97,63 @@ impl ExecutionPlan for SharedParquetExec {
         self
     }
 
-    fn properties(&self) -> &datafusion::physical_plan::PlanProperties {
-        todo!()
+    fn properties(&self) -> &PlanProperties {
+        &self.properties
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
-        todo!()
+        vec![]
     }
 
     fn with_new_children(
         self: Arc<Self>,
-        children: Vec<Arc<dyn ExecutionPlan>>,
+        _: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-        todo!()
+        Ok(self)
     }
 
     fn execute(
         &self,
-        partition: usize,
-        context: Arc<TaskContext>,
-    ) -> datafusion::error::Result<SendableRecordBatchStream> {
-        Ok(Box::pin(SignedFileStream::new(self.client.clone())))
-    }
-}
+        _partition: usize,
+        _context: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream, DataFusionError> {
+        let schema = self.schema.clone();
+        let files = self.files.clone();
+        let client = self.client.clone();
 
-struct ObjectMetadata {
-    presigned_url: String,
-}
+        let stream = stream::iter(files.into_iter().map(move |file| {
+            let client = client.clone();
+            async move {
+                // fetch the file from the interweb
+                let reader = client
+                    .get(file.url)
+                    .send()
+                    .await
+                    .unwrap()
+                    .bytes()
+                    .await
+                    .unwrap();
+                let metadata = ArrowReaderMetadata::load(&reader, Default::default())?;
+                let parquet_schema = metadata.schema();
 
-struct SignedFileStream {
-    client: Client,
-    schema: SchemaRef,
-    files: Vec<ObjectMetadata>,
-}
+                let options = ArrowReaderOptions::new();
+                let mut builder =
+                    ParquetRecordBatchReaderBuilder::try_new_with_options(reader, options)?;
+                let reader = builder.with_batch_size(1024).build()?;
+                let stream = futures::stream::iter(reader);
+                Ok::<_, DataFusionError>(
+                    stream
+                        .boxed()
+                        .map_err(|e| DataFusionError::Execution(e.to_string())),
+                )
+            }
+        }))
+        .buffer_unordered(10)
+        .try_flatten();
 
-impl SignedFileStream {
-    fn new(client: Client) -> Self {
-        Self {
-            client,
-            schema: todo!(),
-            files: Vec::new(),
-        }
-    }
-
-    async fn ne(&self) -> () {
-        let first_file = self.files[0];
-
-        let file = self
-            .client
-            .get(first_file.presigned_url)
-            .send()
-            .await
-            .unwrap()
-            .bytes()
-            .await
-            .unwrap();
-
-        let md = ArrowReaderMetadata::load(&file, Default::default()).unwrap();
-        let parquet_schema = metadata.schema();
-        let (indicies, requested_ordering) =
-            get_requested_indices(self.schema, parquet_schema).unwrap();
-
-        let options = ArrowReaderOptions::new();
-        let mut builder = ParquetRecordBatchReaderBuilder::try_new_with_options(reader, options)?;
-        if let Some(mask) = generate_mask(
-            &self.schema,
-            parquet_schema,
-            builder.parquet_schema(),
-            &indicies,
-        ) {
-            builder = builder.with_projection(mask)
-        }
-
-        let reader = builder.with_batch_size(batch_size).build()?;
-        let stream = futures::stream::iter(reader);
-        let stream = stream.map(move |rbr| {
-            // re-order each batch if needed
-            rbr.map_err(Error::Arrow).and_then(|rb| {
-                reorder_struct_array(rb.into(), &requested_ordering).map(Into::into)
-            })
-        });
-    }
-}
-
-impl Stream for SignedFileStream {
-    type Item = Result<RecordBatch, DataFusionError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        todo!()
-    }
-}
-
-impl RecordBatchStream for SignedFileStream {
-    fn schema(&self) -> arrow_schema::SchemaRef {
-        todo!()
+        Ok(Box::pin(RecordBatchStreamAdapter::new(
+            schema,
+            Box::pin(stream),
+        )))
     }
 }

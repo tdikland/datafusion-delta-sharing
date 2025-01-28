@@ -128,7 +128,7 @@ impl Metadata {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct File {
-    url: String,
+    pub url: String,
     id: String,
     partition_values: HashMap<String, Option<String>>,
     size: i64,

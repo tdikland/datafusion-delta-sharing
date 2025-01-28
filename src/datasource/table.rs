@@ -22,7 +22,7 @@ use crate::{
 // use super::schema::StructType;
 use crate::expr::Op;
 
-use super::s::LogicalTableSchema;
+use super::{format::parquet::SharedParquetExec, s::LogicalTableSchema};
 
 /// Builder for [`DeltaSharingTable`]
 #[derive(Debug, Default)]
@@ -129,9 +129,9 @@ impl DeltaSharingTable {
         Ok(table_data.into_parquet_files())
     }
 
-    fn partition_columns(&self) -> Vec<String> {
-        self.metadata.partition_columns().to_vec()
-    }
+    // fn partition_columns(&self) -> Vec<String> {
+    //     self.metadata.partition_columns().to_vec()
+    // }
 }
 
 #[async_trait::async_trait]
@@ -193,16 +193,16 @@ impl TableProvider for DeltaSharingTable {
         };
 
         // Fetch files satisfying filters & limit (best effort)
-        let files = self.list_files_for_scan(filter, limit).await?;
+        let mut files = self.list_files_for_scan(filter, limit).await?;
 
-        // Build Delta Sharing scan
-        let scan = DeltaSharingScanBuilder::new(self.schema(), self.partition_columns())
-            .with_projection(projection.cloned())
-            .with_files(files)
-            .build()
-            .unwrap();
+        files.iter_mut().for_each(|file| {
+            file.url = format!("{}{}", self.client.profile().endpoint(), &file.url).to_string()
+        });
 
-        Ok(Arc::new(scan))
+        println!("{:?}", files);
+
+        let exec = SharedParquetExec::new(self.schema(), files);
+        Ok(Arc::new(exec))
     }
 
     fn supports_filters_pushdown(
