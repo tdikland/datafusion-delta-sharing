@@ -3,17 +3,17 @@ use reqwest::Response;
 
 use crate::model::{
     action::parquet::{File, Metadata, Protocol},
-    TableVersion,
+    TableVersionNumber,
 };
 
 use super::line::ResponseLine;
 use super::util::{extract_delta_table_version, has_ndjson_content_type};
-use super::{FromResponse, ParseResponseError};
+use super::{FromResponse, ResponseError};
 
 // TODO: handle CDC when the startingVersion is set!
 
 pub struct QueryTableDataResponse {
-    pub version: TableVersion,
+    pub version: TableVersionNumber,
     pub lines: TableDataResponseLines,
 }
 
@@ -29,21 +29,18 @@ pub struct ParquetData {
 
 #[async_trait]
 impl FromResponse for QueryTableDataResponse {
-    type Error = ParseResponseError;
+    type Error = ResponseError;
 
     async fn parse(res: Response) -> Result<Self, Self::Error> {
         if !has_ndjson_content_type(res.headers()) {
-            return Err(ParseResponseError::MissingNdJsonContentType);
+            return Err(ResponseError::MissingNdJsonContentType);
         }
 
         let table_version = extract_delta_table_version(res.headers())?;
 
-        let bytes = res
-            .bytes()
-            .await
-            .map_err(|e| ParseResponseError::BodyError {
-                source: Box::new(e),
-            })?;
+        let bytes = res.bytes().await.map_err(|e| ResponseError::BodyError {
+            source: Box::new(e),
+        })?;
 
         let mut deserializer =
             serde_json::Deserializer::from_slice(&bytes).into_iter::<ResponseLine>();
@@ -51,31 +48,31 @@ impl FromResponse for QueryTableDataResponse {
         let protocol_response_line = deserializer
             .next()
             .and_then(Result::ok)
-            .ok_or(ParseResponseError::UnexpectedEndOfStream)?;
+            .ok_or(ResponseError::UnexpectedEndOfStream)?;
         let metadata_response_line = deserializer
             .next()
             .and_then(Result::ok)
-            .ok_or(ParseResponseError::UnexpectedEndOfStream)?;
+            .ok_or(ResponseError::UnexpectedEndOfStream)?;
 
-        let file_response_lines = deserializer
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| ParseResponseError::BodyError {
-                source: Box::new(e), // fix?
-            })?;
+        let file_response_lines =
+            deserializer
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| ResponseError::BodyError {
+                    source: Box::new(e), // fix?
+                })?;
 
         let lines = match (protocol_response_line, metadata_response_line) {
             (ResponseLine::Parquet(p), ResponseLine::Parquet(m)) => {
-                let protocol =
-                    p.to_protocol()
-                        .ok_or(ParseResponseError::UnexpectedWrapperObject {
-                            expected: String::from("protocol"),
-                        })?;
-                let metadata =
-                    m.to_metadata()
-                        .ok_or(ParseResponseError::UnexpectedWrapperObject {
-                            expected: String::from("metadata"),
-                        })?;
+                let protocol = p
+                    .to_protocol()
+                    .ok_or(ResponseError::UnexpectedWrapperObject {
+                        expected: String::from("protocol"),
+                    })?;
+                let metadata = m
+                    .to_metadata()
+                    .ok_or(ResponseError::UnexpectedWrapperObject {
+                        expected: String::from("metadata"),
+                    })?;
 
                 let files = file_response_lines
                     .into_iter()
@@ -97,7 +94,7 @@ impl FromResponse for QueryTableDataResponse {
         };
 
         Ok(QueryTableDataResponse {
-            version: TableVersion(table_version),
+            version: TableVersionNumber(table_version),
             lines,
         })
     }
@@ -121,7 +118,7 @@ mod test {
             .body(body)
             .unwrap();
 
-        let parsed = QueryTableDataResponse::parse(response.try_into().unwrap())
+        let parsed = QueryTableDataResponse::parse(response.into())
             .await
             .unwrap();
         assert_eq!(parsed.version.0, 3);

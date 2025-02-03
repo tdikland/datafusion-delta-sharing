@@ -1,11 +1,17 @@
-use core::fmt;
 use std::convert::Infallible;
 
-use super::rest::error::RestClientError;
+use thiserror::Error;
 
-#[derive(Debug)]
+use super::{request::ParseNameError, rest::RestClientError};
+
+/// Client error.
+#[derive(Debug, Error)]
 pub enum ClientError {
+    /// REST client error.
+    #[error("REST client error")]
     RestClientError(RestClientError),
+    /// Invalid table reference.
+    #[error("invalid table reference")]
     InvalidTableRef,
 }
 
@@ -15,9 +21,12 @@ impl From<RestClientError> for ClientError {
     }
 }
 
-impl fmt::Display for ClientError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+impl From<ParseNameError> for ClientError {
+    fn from(e: ParseNameError) -> Self {
+        match e {
+            ParseNameError::TableRef => ClientError::InvalidTableRef,
+            _ => panic!("welp"),
+        }
     }
 }
 
@@ -26,5 +35,3 @@ impl From<Infallible> for ClientError {
         unreachable!()
     }
 }
-
-impl std::error::Error for ClientError {}

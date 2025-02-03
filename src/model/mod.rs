@@ -2,6 +2,7 @@
 
 use std::{fmt::Display, str::FromStr};
 
+use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 use crate::error::DeltaSharingError;
@@ -10,16 +11,17 @@ pub mod action;
 mod schema;
 mod share;
 mod table;
-mod version;
+// mod version;
 
 pub use share::ShareInfo;
-pub use version::TableVersion;
+pub use table::TableVersionNumber;
 
 /// The type of a schema as defined in the Delta Sharing protocol.
 ///
 /// A schema is a logical grouping of tables. A schema may contain multiple
 /// tables. A schema is defined within the context of a [`Share`].
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Builder)]
+#[builder(on(String, into))]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaInfo {
     share: String,
@@ -40,9 +42,12 @@ impl SchemaInfo {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Schema, Share};
+    /// use datafusion_delta_sharing::model::SchemaInfo;
     ///
-    /// let schema = Schema::new("my-share", "my-schema");
+    /// let schema = SchemaInfo::builder()
+    ///     .share("my-share")
+    ///     .name("my-schema")
+    ///     .build();
     /// assert_eq!(schema.share_name(), "my-share");
     /// ```
     pub fn share_name(&self) -> &str {
@@ -54,9 +59,12 @@ impl SchemaInfo {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::Schema;
+    /// use datafusion_delta_sharing::model::SchemaInfo;
     ///
-    /// let schema = Schema::new("my-share", "my-schema");
+    /// let schema = SchemaInfo::builder()
+    ///     .share("my-share")
+    ///     .name("my-schema")
+    ///     .build();
     /// assert_eq!(schema.name(), "my-schema");
     /// ```
     pub fn name(&self) -> &str {
@@ -89,7 +97,8 @@ impl FromStr for SchemaInfo {
 ///
 /// A table is a Delta Lake table or a view on top of a Delta Lake table. A
 /// table is defined within the context of a [`Schema`].
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Builder)]
+#[builder(on(String, into))]
 #[serde(rename_all = "camelCase")]
 pub struct TableInfo {
     name: String,
@@ -124,9 +133,13 @@ impl TableInfo {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Schema, Share, Table};
+    /// use datafusion_delta_sharing::model::TableInfo;
     ///
-    /// let table = Table::new("my-share", "my-schema", "my-table", None, None);
+    /// let table = TableInfo::builder()
+    ///     .share("my-share")
+    ///     .schema("my-schema")
+    ///     .name("my-table")
+    ///     .build();
     /// assert_eq!(table.share_name(), "my-share");
     /// ```
     pub fn share_name(&self) -> &str {
@@ -138,15 +151,14 @@ impl TableInfo {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Schema, Share, Table};
+    /// use datafusion_delta_sharing::model::TableInfo;
     ///
-    /// let table = Table::new(
-    ///     "my-share",
-    ///     "my-schema",
-    ///     "my-table",
-    ///     Some("my-share-id".to_string()),
-    ///     None,
-    /// );
+    /// let table = TableInfo::builder()
+    ///     .share("my-share")
+    ///     .schema("my-schema")
+    ///     .name("my-table")
+    ///     .share_id("my-share-id")
+    ///     .build();
     /// assert_eq!(table.share_id(), Some("my-share-id"));
     /// ```
     pub fn share_id(&self) -> Option<&str> {
@@ -158,9 +170,13 @@ impl TableInfo {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Schema, Share, Table};
+    /// use datafusion_delta_sharing::model::TableInfo;
     ///
-    /// let table = Table::new("my-share", "my-schema", "my-table", None, None);
+    /// let table = TableInfo::builder()
+    ///     .share("my-share")
+    ///     .schema("my-schema")
+    ///     .name("my-table")
+    ///     .build();
     /// assert_eq!(table.schema_name(), "my-schema");
     /// ```
     pub fn schema_name(&self) -> &str {
@@ -172,9 +188,13 @@ impl TableInfo {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Schema, Share, Table};
+    /// use datafusion_delta_sharing::model::TableInfo;
     ///
-    /// let table = Table::new("my-share", "my-schema", "my-table", None, None);
+    /// let table = TableInfo::builder()
+    ///     .share("my-share")
+    ///     .schema("my-schema")
+    ///     .name("my-table")
+    ///     .build();
     /// assert_eq!(table.name(), "my-table");
     /// ```
     pub fn name(&self) -> &str {
@@ -186,15 +206,14 @@ impl TableInfo {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::securable::{Schema, Share, Table};
+    /// use datafusion_delta_sharing::model::TableInfo;
     ///
-    /// let table = Table::new(
-    ///     "my-share",
-    ///     "my-schema",
-    ///     "my-table",
-    ///     None,
-    ///     Some("my-table-id".to_string()),
-    /// );
+    /// let table = TableInfo::builder()
+    ///     .share("my-share")
+    ///     .schema("my-schema")
+    ///     .name("my-table")
+    ///     .id("my-table-id")
+    ///     .build();
     /// assert_eq!(table.id(), Some("my-table-id"));
     /// ```
     pub fn id(&self) -> Option<&str> {

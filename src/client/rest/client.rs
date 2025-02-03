@@ -1,22 +1,18 @@
-use core::fmt;
-use std::clone;
+use std::fmt;
 
-use async_trait::async_trait;
-use reqwest::{Client, RequestBuilder};
-use serde::Serialize;
+use http::header::AUTHORIZATION;
+use http::{HeaderValue, Uri};
+use reqwest::Client;
 
-use crate::auth::Profile;
+use super::profile::Profile;
 
 use super::{
     error::RestClientError,
-    request::{IntoRequest, Request},
+    request::IntoRequest,
     response::{ErrorResponse, FromResponse},
 };
 
-const CAPABILITIES_HEADER: &str = "delta-sharing-capabilities";
-const CAPABILITIES: &str = "responseFormat=parquet";
-
-static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
+static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Clone)]
 pub struct RestClient {
@@ -34,7 +30,10 @@ impl fmt::Debug for RestClient {
 
 impl RestClient {
     pub fn new(profile: Profile) -> Self {
-        let client = Client::builder().user_agent(USER_AGENT).build().unwrap();
+        let client = Client::builder()
+            .user_agent(USER_AGENT)
+            .build()
+            .expect("valid client configuration");
         Self {
             inner: client,
             profile,
@@ -45,46 +44,45 @@ impl RestClient {
         &self.profile
     }
 
-    pub async fn send_other<R: IntoRequest>(
-        &self,
-        request: R,
-    ) -> Result<R::Response, RestClientError>
+    pub async fn send<R: IntoRequest>(&self, request: R) -> Result<R::Response, RestClientError>
     where
-        RestClientError: From<R::Error>,
-        R::Body: Into<reqwest::Body>,
+        RestClientError: From<<<R as IntoRequest>::Response as FromResponse>::Error>,
     {
-        let mut req: reqwest::Request = request.into_request()?.try_into().unwrap();
-
-        todo!()
-    }
-
-    pub(crate) async fn send<R: Request>(&self, request: R) -> Result<R::Response, RestClientError>
-    where
-        RestClientError: From<<<R as Request>::Response as FromResponse>::Error>,
-    {
-        let url = if self.profile.endpoint().as_ref().ends_with('/') {
-            format!(
+        let mut http_request = request.into_request()?;
+        let new_uri = Uri::builder()
+            .scheme(self.profile.endpoint().scheme())
+            .authority(self.profile.endpoint().authority())
+            .path_and_query(format!(
                 "{}{}",
-                self.profile.endpoint(),
-                request.endpoint().to_string().strip_prefix('/').unwrap()
-            )
-        } else {
-            format!("{}{}", self.profile.endpoint(), request.endpoint())
-        };
+                self.profile.endpoint().path(),
+                http_request
+                    .uri()
+                    .path_and_query()
+                    .expect("valid")
+                    .as_str()
+                    .trim_start_matches('/')
+            ))
+            .build()
+            .expect("valid URI");
+        *http_request.uri_mut() = new_uri;
 
-        tracing::info!(url = url, method = ?R::HTTP_METHOD, "send request");
-        let response = self
-            .inner
-            .request(R::HTTP_METHOD, &url)
-            .headers(request.headers())
-            .header(CAPABILITIES_HEADER, CAPABILITIES)
-            .query(&request.query())
-            .with_body(request.body())
-            .with_auth(&self.profile)
+        // Authorize request
+        let token = self
+            .profile()
+            .get_bearer_token()
             .await
-            .send()
-            .await?;
+            .map_err(|e| RestClientError::HttpClientError(Box::new(e)))?;
+        http_request.headers_mut().insert(
+            AUTHORIZATION,
+            HeaderValue::from_maybe_shared(format!("Bearer {}", token))
+                .expect("valid authz header"),
+        );
 
+        // Send request
+        let req = http_request.try_into().expect("valid request");
+        let response = self.inner.execute(req).await?;
+
+        // Parse response
         if !response.status().is_success() {
             tracing::error!(res = ?response, "error response");
             let status = response.status();
@@ -104,105 +102,49 @@ impl RestClient {
         }
     }
 
-    // pub async fn list_shares_paginated(
+    // pub(crate) async fn send_other<R: Request>(
     //     &self,
-    //     max_results: Option<i32>,
-    //     page_token: Option<String>,
-    // ) -> Result<ListSharesResponse, RestClientError> {
-    //     let request = ListSharesRequest::builder()
-    //         .maybe_max_results(max_results)
-    //         .maybe_page_token(page_token)
-    //         .build();
-    //     self.send(request).await
-    // }
+    //     request: R,
+    // ) -> Result<R::Response, RestClientError>
+    // where
+    //     RestClientError: From<<<R as Request>::Response as FromResponse>::Error>,
+    // {
+    //     let url = if self.profile.endpoint().as_ref().ends_with('/') {
+    //         format!(
+    //             "{}{}",
+    //             self.profile.endpoint(),
+    //             request.endpoint().to_string().strip_prefix('/').unwrap()
+    //         )
+    //     } else {
+    //         format!("{}{}", self.profile.endpoint(), request.endpoint())
+    //     };
 
-    // pub async fn get_share(&self, share: String) -> Result<GetShareResponse, RestClientError> {
-    //     let request = GetShareRequest::builder().share_name(share).build();
-    //     self.send(request).await
-    // }
+    //     tracing::info!(url = url, method = ?R::HTTP_METHOD, "send request");
+    //     let response = self
+    //         .inner
+    //         .request(R::HTTP_METHOD, &url)
+    //         .headers(request.headers())
+    //         .header(CAPABILITIES_HEADER, CAPABILITIES)
+    //         .query(&request.query())
+    //         .with_body(request.body())
+    //         .with_auth(&self.profile)
+    //         .await
+    //         .send()
+    //         .await?;
 
-    // pub async fn list_schemas(
-    //     &self,
-    //     share: String,
-    //     max_results: Option<i32>,
-    //     page_token: Option<String>,
-    // ) -> Result<ListSchemasResponse, RestClientError> {
-    //     let request = ListSchemasRequest::builder()
-    //         .share_name(share)
-    //         .maybe_max_results(max_results)
-    //         .maybe_page_token(page_token)
-    //         .build();
-    //     self.send(request).await
-    // }
+    //     if !response.status().is_success() {
+    //         tracing::error!(res = ?response, "error response");
+    //         let status = response.status();
+    //         let error_response = response
+    //             .json::<ErrorResponse>()
+    //             .await
+    //             .map_err(|e| RestClientError::DecodeErrorResponse(e.to_string()))?;
 
-    // pub async fn list_tables_in_schema(
-    //     &self,
-    //     share: String,
-    //     schema: String,
-    //     max_results: Option<i32>,
-    //     page_token: Option<String>,
-    // ) -> Result<ListTablesResponse, RestClientError> {
-    //     let request = ListTablesInSchemaRequest::builder()
-    //         .share_name(share)
-    //         .schema_name(schema)
-    //         .maybe_max_results(max_results)
-    //         .maybe_page_token(page_token)
-    //         .build();
-    //     self.send(request).await
-    // }
-
-    // pub async fn list_tables_in_share(
-    //     &self,
-    //     share: String,
-    //     max_results: Option<i32>,
-    //     page_token: Option<String>,
-    // ) -> Result<ListTablesResponse, RestClientError> {
-    //     let request = ListTablesInShareRequest::builder()
-    //         .share_name(share)
-    //         .maybe_max_results(max_results)
-    //         .maybe_page_token(page_token)
-    //         .build();
-    //     self.send(request).await
-    // }
-
-    // pub async fn query_table_version(
-    //     &self,
-    //     share_name: String,
-    //     schema_name: String,
-    //     table_name: String,
-    //     starting_timestamp: Option<String>,
-    // ) -> Result<QueryTableVersionResponse, RestClientError> {
-    //     let request = QueryTableVersionRequest::builder()
-    //         .share_name(share_name)
-    //         .schema_name(schema_name)
-    //         .table_name(table_name)
-    //         .maybe_starting_timestamp(starting_timestamp)
-    //         .build();
-    //     self.send(request).await
-    // }
-}
-
-#[async_trait]
-trait RequestBuilderExt: Sized {
-    fn with_body<T: Serialize>(self, body: Option<T>) -> Self;
-
-    async fn with_auth(self, auth: &Profile) -> Self;
-}
-
-#[async_trait]
-impl RequestBuilderExt for RequestBuilder {
-    fn with_body<T: Serialize>(self, body: Option<T>) -> Self {
-        match body {
-            Some(b) => self.json(&b),
-            None => self,
-        }
-    }
-
-    // TODO: propagate result for expired token, failed to fetch new, etc.
-    async fn with_auth(self, auth: &Profile) -> Self {
-        let token = auth.get_token().await.unwrap();
-        self.bearer_auth(token)
-    }
+    //         Err(RestClientError::ErrorResponse {
+    //             status,
+    //             body: error_response,
+    //         })
+    //
 }
 
 #[cfg(test)]
@@ -212,8 +154,8 @@ mod test {
     use tracing_test::traced_test;
     use url::Url;
 
-    use super::super::request::{GetShareRequest, ListSharesRequest};
-    use crate::{auth::ProfileType, model::ShareInfo};
+    use super::super::request::ListSharesRequest;
+    use crate::{model::ShareInfo, profile::ProfileType};
 
     use super::*;
 
@@ -241,7 +183,7 @@ mod test {
 
         let req = ListSharesRequest::builder()
             .max_results(100)
-            .page_token(String::from("token"))
+            .page_token("token")
             .build();
         let res = client.send(req).await.unwrap();
 
@@ -258,199 +200,6 @@ mod test {
         assert_eq!(res.next_page_token, Some("next_token".to_owned()));
     }
 
-    #[traced_test]
-    #[tokio::test]
-    #[ignore = "todo"]
-    async fn get_share() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method("GET")
-                .path("/shares/vaccine_share")
-                .header_exists("authorization");
-            then.status(200)
-                .header("content-type", "application/json; charset=utf-8")
-                .body_from_file("./src/client/resources/get_share.json");
-        });
-        let client = build_sharing_client(&server);
-
-        let req = GetShareRequest::builder()
-            .share_name("vaccine_share".to_string())
-            .build();
-        let res = client.send(req).await.unwrap();
-
-        mock.assert();
-        // assert_eq!(result, share);
-        assert!(false)
-    }
-
-    #[traced_test]
-    #[tokio::test]
-    #[ignore = "todo"]
-    async fn list_schemas() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method("GET")
-                .path("/shares")
-                // TODO check query params .query()
-                .header_exists("authorization");
-            then.status(200)
-                .header("content-type", "application/json; charset=utf-8")
-                .body_from_file("./src/client/resources/list_shares.json");
-        });
-        let client = build_sharing_client(&server);
-
-        let req = ListSharesRequest::builder().build();
-        let res = client.send(req).await.unwrap();
-
-        mock.assert();
-        // assert_eq!(result, share);
-        assert!(false)
-    }
-
-    #[traced_test]
-    #[tokio::test]
-    #[ignore = "todo"]
-    async fn list_tables_in_share() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method("GET")
-                .path("/shares")
-                // TODO check query params .query()
-                .header_exists("authorization");
-            then.status(200)
-                .header("content-type", "application/json; charset=utf-8")
-                .body_from_file("./src/client/resources/list_shares.json");
-        });
-        let client = build_sharing_client(&server);
-
-        let req = ListSharesRequest::builder().build();
-        let res = client.send(req).await.unwrap();
-
-        mock.assert();
-        // assert_eq!(result, share);
-        assert!(false)
-    }
-
-    #[traced_test]
-    #[tokio::test]
-    #[ignore = "todo"]
-    async fn list_tables_in_schema() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method("GET")
-                .path("/shares")
-                // TODO check query params .query()
-                .header_exists("authorization");
-            then.status(200)
-                .header("content-type", "application/json; charset=utf-8")
-                .body_from_file("./src/client/resources/list_shares.json");
-        });
-        let client = build_sharing_client(&server);
-
-        let req = ListSharesRequest::builder().build();
-        let res = client.send(req).await.unwrap();
-
-        mock.assert();
-        // assert_eq!(result, share);
-        assert!(false)
-    }
-
-    #[traced_test]
-    #[tokio::test]
-    #[ignore = "todo"]
-    async fn query_table_version() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method("GET")
-                .path("/shares")
-                // TODO check query params .query()
-                .header_exists("authorization");
-            then.status(200)
-                .header("content-type", "application/json; charset=utf-8")
-                .body_from_file("./src/client/resources/list_shares.json");
-        });
-        let client = build_sharing_client(&server);
-
-        let req = ListSharesRequest::builder().build();
-        let res = client.send(req).await.unwrap();
-
-        mock.assert();
-        // assert_eq!(result, share);
-        assert!(false)
-    }
-
-    #[traced_test]
-    #[tokio::test]
-    #[ignore = "todo"]
-    async fn query_table_metadata() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method("GET")
-                .path("/shares")
-                // TODO check query params .query()
-                .header_exists("authorization");
-            then.status(200)
-                .header("content-type", "application/json; charset=utf-8")
-                .body_from_file("./src/client/resources/list_shares.json");
-        });
-        let client = build_sharing_client(&server);
-
-        let req = ListSharesRequest::builder().build();
-        let res = client.send(req).await.unwrap();
-
-        mock.assert();
-        // assert_eq!(result, share);
-        assert!(false)
-    }
-
-    #[traced_test]
-    #[tokio::test]
-    #[ignore = "todo"]
-    async fn query_table_data() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method("GET")
-                .path("/shares")
-                // TODO check query params .query()
-                .header_exists("authorization");
-            then.status(200)
-                .header("content-type", "application/json; charset=utf-8")
-                .body_from_file("./src/client/resources/list_shares.json");
-        });
-        let client = build_sharing_client(&server);
-
-        let req = ListSharesRequest::builder().build();
-        let res = client.send(req).await.unwrap();
-
-        mock.assert();
-        // assert_eq!(result, share);
-        assert!(false)
-    }
-
-    #[traced_test]
-    #[tokio::test]
-    #[ignore = "todo"]
-    async fn query_table_changes() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method("GET")
-                .path("/shares")
-                // TODO check query params .query()
-                .header_exists("authorization");
-            then.status(200)
-                .header("content-type", "application/json; charset=utf-8")
-                .body_from_file("./src/client/resources/list_shares.json");
-        });
-        let client = build_sharing_client(&server);
-
-        let req = ListSharesRequest::builder().build();
-        let res = client.send(req).await.unwrap();
-
-        mock.assert();
-        // assert_eq!(result, share);
-        assert!(false)
-    }
-
     fn build_sharing_client(server: &MockServer) -> RestClient {
         let profile_type = ProfileType::new_bearer_token("test-token", None);
         let mock_server_url = server.base_url().parse::<Url>().unwrap();
@@ -459,63 +208,264 @@ mod test {
     }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use chrono::{TimeZone, Utc};
-//     use httpmock::MockServer;
-//     use serde_json::json;
-//     use tracing_test::traced_test;
+//     #[traced_test]
+//     #[tokio::test]
+//     #[ignore = "todo"]
+//     async fn get_share() {
+//         let server = MockServer::start();
+//         let mock = server.mock(|when, then| {
+//             when.method("GET")
+//                 .path("/shares/vaccine_share")
+//                 .header_exists("authorization");
+//             then.status(200)
+//                 .header("content-type", "application/json; charset=utf-8")
+//                 .body_from_file("./src/client/resources/get_share.json");
+//         });
+//         let client = build_sharing_client(&server);
 
-//     use crate::profile::ProfileType;
+//         let req = GetShareRequest::builder()
+//             .share_name("vaccine_share".to_string())
+//             .build();
+//         let res = client.send(req).await.unwrap();
 
-//     use super::*;
-
-//     #[test]
-//     fn test_url_for_share() {
-//         let endpoint = Url::parse("https://example.com/prefix").unwrap();
-//         let share = Share::new("my-share", None);
-//         let url = url_for_share(endpoint.clone(), &share, None);
-//         assert_eq!(url.as_str(), "https://example.com/prefix/shares/my-share");
-
-//         let url = url_for_share(endpoint.clone(), &share, Some("res"));
-//         assert_eq!(
-//             url.as_str(),
-//             "https://example.com/prefix/shares/my-share/res"
-//         );
+//         mock.assert();
+//         // assert_eq!(result, share);
+//         assert!(false)
 //     }
 
-//     #[test]
-//     fn test_url_for_schema() {
-//         let endpoint = Url::parse("https://example.com/prefix/").unwrap();
-//         let schema = Schema::new("my-share", "my-schema");
-//         let url = url_for_schema(endpoint.clone(), &schema, None);
-//         assert_eq!(
-//             url.as_str(),
-//             "https://example.com/prefix/shares/my-share/schemas/my-schema"
-//         );
+//     #[traced_test]
+//     #[tokio::test]
+//     #[ignore = "todo"]
+//     async fn list_schemas() {
+//         let server = MockServer::start();
+//         let mock = server.mock(|when, then| {
+//             when.method("GET")
+//                 .path("/shares")
+//                 // TODO check query params .query()
+//                 .header_exists("authorization");
+//             then.status(200)
+//                 .header("content-type", "application/json; charset=utf-8")
+//                 .body_from_file("./src/client/resources/list_shares.json");
+//         });
+//         let client = build_sharing_client(&server);
 
-//         let url = url_for_schema(endpoint.clone(), &schema, Some("res"));
-//         assert_eq!(
-//             url.as_str(),
-//             "https://example.com/prefix/shares/my-share/schemas/my-schema/res"
-//         );
+//         let req = ListSharesRequest::builder().build();
+//         let res = client.send(req).await.unwrap();
+
+//         mock.assert();
+//         // assert_eq!(result, share);
+//         assert!(false)
 //     }
 
-//     #[test]
-//     fn test_url_for_table() {
-//         let endpoint = Url::parse("https://example.com/prefix").unwrap();
-//         let table = Table::new("my-share", "my-schema", "my-table", None, None);
-//         let url = url_for_table(endpoint.clone(), &table, None);
-//         assert_eq!(
-//             url.as_str(),
-//             "https://example.com/prefix/shares/my-share/schemas/my-schema/tables/my-table"
-//         );
+//     #[traced_test]
+//     #[tokio::test]
+//     #[ignore = "todo"]
+//     async fn list_tables_in_share() {
+//         let server = MockServer::start();
+//         let mock = server.mock(|when, then| {
+//             when.method("GET")
+//                 .path("/shares")
+//                 // TODO check query params .query()
+//                 .header_exists("authorization");
+//             then.status(200)
+//                 .header("content-type", "application/json; charset=utf-8")
+//                 .body_from_file("./src/client/resources/list_shares.json");
+//         });
+//         let client = build_sharing_client(&server);
 
-//         let url = url_for_table(endpoint.clone(), &table, Some("res"));
-//         assert_eq!(
-//             url.as_str(),
-//             "https://example.com/prefix/shares/my-share/schemas/my-schema/tables/my-table/res"
-//         );
+//         let req = ListSharesRequest::builder().build();
+//         let res = client.send(req).await.unwrap();
+
+//         mock.assert();
+//         // assert_eq!(result, share);
+//         assert!(false)
+//     }
+
+//     #[traced_test]
+//     #[tokio::test]
+//     #[ignore = "todo"]
+//     async fn list_tables_in_schema() {
+//         let server = MockServer::start();
+//         let mock = server.mock(|when, then| {
+//             when.method("GET")
+//                 .path("/shares")
+//                 // TODO check query params .query()
+//                 .header_exists("authorization");
+//             then.status(200)
+//                 .header("content-type", "application/json; charset=utf-8")
+//                 .body_from_file("./src/client/resources/list_shares.json");
+//         });
+//         let client = build_sharing_client(&server);
+
+//         let req = ListSharesRequest::builder().build();
+//         let res = client.send(req).await.unwrap();
+
+//         mock.assert();
+//         // assert_eq!(result, share);
+//         assert!(false)
+//     }
+
+//     #[traced_test]
+//     #[tokio::test]
+//     #[ignore = "todo"]
+//     async fn query_table_version() {
+//         let server = MockServer::start();
+//         let mock = server.mock(|when, then| {
+//             when.method("GET")
+//                 .path("/shares")
+//                 // TODO check query params .query()
+//                 .header_exists("authorization");
+//             then.status(200)
+//                 .header("content-type", "application/json; charset=utf-8")
+//                 .body_from_file("./src/client/resources/list_shares.json");
+//         });
+//         let client = build_sharing_client(&server);
+
+//         let req = ListSharesRequest::builder().build();
+//         let res = client.send(req).await.unwrap();
+
+//         mock.assert();
+//         // assert_eq!(result, share);
+//         assert!(false)
+//     }
+
+//     #[traced_test]
+//     #[tokio::test]
+//     #[ignore = "todo"]
+//     async fn query_table_metadata() {
+//         let server = MockServer::start();
+//         let mock = server.mock(|when, then| {
+//             when.method("GET")
+//                 .path("/shares")
+//                 // TODO check query params .query()
+//                 .header_exists("authorization");
+//             then.status(200)
+//                 .header("content-type", "application/json; charset=utf-8")
+//                 .body_from_file("./src/client/resources/list_shares.json");
+//         });
+//         let client = build_sharing_client(&server);
+
+//         let req = ListSharesRequest::builder().build();
+//         let res = client.send(req).await.unwrap();
+
+//         mock.assert();
+//         // assert_eq!(result, share);
+//         assert!(false)
+//     }
+
+//     #[traced_test]
+//     #[tokio::test]
+//     #[ignore = "todo"]
+//     async fn query_table_data() {
+//         let server = MockServer::start();
+//         let mock = server.mock(|when, then| {
+//             when.method("GET")
+//                 .path("/shares")
+//                 // TODO check query params .query()
+//                 .header_exists("authorization");
+//             then.status(200)
+//                 .header("content-type", "application/json; charset=utf-8")
+//                 .body_from_file("./src/client/resources/list_shares.json");
+//         });
+//         let client = build_sharing_client(&server);
+
+//         let req = ListSharesRequest::builder().build();
+//         let res = client.send(req).await.unwrap();
+
+//         mock.assert();
+//         // assert_eq!(result, share);
+//         assert!(false)
+//     }
+
+//     #[traced_test]
+//     #[tokio::test]
+//     #[ignore = "todo"]
+//     async fn query_table_changes() {
+//         let server = MockServer::start();
+//         let mock = server.mock(|when, then| {
+//             when.method("GET")
+//                 .path("/shares")
+//                 // TODO check query params .query()
+//                 .header_exists("authorization");
+//             then.status(200)
+//                 .header("content-type", "application/json; charset=utf-8")
+//                 .body_from_file("./src/client/resources/list_shares.json");
+//         });
+//         let client = build_sharing_client(&server);
+
+//         let req = ListSharesRequest::builder().build();
+//         let res = client.send(req).await.unwrap();
+
+//         mock.assert();
+//         // assert_eq!(result, share);
+//         assert!(false)
+//     }
+
+//     fn build_sharing_client(server: &MockServer) -> RestClient {
+//         let profile_type = ProfileType::new_bearer_token("test-token", None);
+//         let mock_server_url = server.base_url().parse::<Url>().unwrap();
+//         let profile: Profile = Profile::from_profile_type(1, mock_server_url, profile_type);
+//         RestClient::new(profile)
+//     }
+// }
+
+// // #[cfg(test)]
+// // mod test {
+// //     use chrono::{TimeZone, Utc};
+// //     use httpmock::MockServer;
+// //     use serde_json::json;
+// //     use tracing_test::traced_test;
+
+// //     use crate::profile::ProfileType;
+
+// //     use super::*;
+
+// //     #[test]
+// //     fn test_url_for_share() {
+// //         let endpoint = Url::parse("https://example.com/prefix").unwrap();
+// //         let share = Share::new("my-share", None);
+// //         let url = url_for_share(endpoint.clone(), &share, None);
+// //         assert_eq!(url.as_str(), "https://example.com/prefix/shares/my-share");
+
+// //         let url = url_for_share(endpoint.clone(), &share, Some("res"));
+// //         assert_eq!(
+// //             url.as_str(),
+// //             "https://example.com/prefix/shares/my-share/res"
+// //         );
+// //     }
+
+// //     #[test]
+// //     fn test_url_for_schema() {
+// //         let endpoint = Url::parse("https://example.com/prefix/").unwrap();
+// //         let schema = Schema::new("my-share", "my-schema");
+// //         let url = url_for_schema(endpoint.clone(), &schema, None);
+// //         assert_eq!(
+// //             url.as_str(),
+// //             "https://example.com/prefix/shares/my-share/schemas/my-schema"
+// //         );
+
+// //         let url = url_for_schema(endpoint.clone(), &schema, Some("res"));
+// //         assert_eq!(
+// //             url.as_str(),
+// //             "https://example.com/prefix/shares/my-share/schemas/my-schema/res"
+// //         );
+// //     }
+
+// //     #[test]
+// //     fn test_url_for_table() {
+// //         let endpoint = Url::parse("https://example.com/prefix").unwrap();
+// //         let table = Table::new("my-share", "my-schema", "my-table", None, None);
+// //         let url = url_for_table(endpoint.clone(), &table, None);
+// //         assert_eq!(
+// //             url.as_str(),
+// //             "https://example.com/prefix/shares/my-share/schemas/my-schema/tables/my-table"
+// //         );
+
+// //         let url = url_for_table(endpoint.clone(), &table, Some("res"));
+// //         assert_eq!(
+// //             url.as_str(),
+// //             "https://example.com/prefix/shares/my-share/schemas/my-schema/tables/my-table/res"
+// //         );
 //     }
 
 //     fn build_sharing_client(server: &MockServer) -> DeltaSharingClient {

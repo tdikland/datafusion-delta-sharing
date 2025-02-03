@@ -1,6 +1,6 @@
 use super::line;
 use super::util;
-use super::{FromResponse, ParseResponseError};
+use super::{FromResponse, ResponseError};
 
 mod get_share;
 mod list_schemas;

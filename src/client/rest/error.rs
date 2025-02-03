@@ -1,11 +1,15 @@
 use http::StatusCode;
 
-use super::response::{ErrorResponse, ParseResponseError};
+use super::{
+    request::RequestError,
+    response::{ErrorResponse, ResponseError},
+};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Debug)]
 pub enum RestClientError {
+    RequestError(RequestError),
     HttpClientError(BoxError),
     MissingDeltaTableVersionHeader,
     InvalidDeltaTableVersionHeader(String),
@@ -14,7 +18,7 @@ pub enum RestClientError {
         status: http::StatusCode,
         body: ErrorResponse,
     },
-    ParseResponse(ParseResponseError),
+    ParseResponse(ResponseError),
 }
 
 impl RestClientError {
@@ -30,9 +34,16 @@ impl From<reqwest::Error> for RestClientError {
     }
 }
 
-impl From<ParseResponseError> for RestClientError {
-    fn from(err: ParseResponseError) -> Self {
+impl From<ResponseError> for RestClientError {
+    fn from(err: ResponseError) -> Self {
         tracing::error!(err=?err, msg=%err, "Failed to parse response");
         Self::ParseResponse(err)
+    }
+}
+
+impl From<RequestError> for RestClientError {
+    fn from(err: RequestError) -> Self {
+        tracing::error!(err=?err, msg=%err, "Failed to build request");
+        Self::RequestError(err)
     }
 }

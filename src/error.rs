@@ -8,8 +8,6 @@ use std::{
 use arrow_schema::ArrowError;
 use datafusion::error::DataFusionError;
 
-// use crate::expr::error::ParseExpressionError;
-
 /// Error type for Delta Sharing.
 #[derive(Debug, Clone)]
 pub struct DeltaSharingError {
@@ -71,6 +69,12 @@ impl DeltaSharingError {
     }
 }
 
+impl From<ProfileError> for DeltaSharingError {
+    fn from(value: ProfileError) -> Self {
+        todo!()
+    }
+}
+
 /// Kind of Delta Sharing error
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeltaSharingErrorKind {
@@ -112,10 +116,13 @@ impl Display for DeltaSharingErrorKind {
 
 impl Error for DeltaSharingError {}
 
-use crate::client::error::ClientError;
+use crate::{
+    client::{profile::error::ProfileError, ClientError, ParseNameError},
+    datasource::DataSourceError,
+};
 
 impl From<ClientError> for DeltaSharingError {
-    fn from(err: ClientError) -> Self {
+    fn from(_err: ClientError) -> Self {
         todo!()
     }
 }
@@ -138,6 +145,18 @@ impl From<ArrowError> for DeltaSharingError {
 impl From<DeltaSharingError> for DataFusionError {
     fn from(e: DeltaSharingError) -> Self {
         DataFusionError::Execution(e.to_string())
+    }
+}
+
+impl From<ParseNameError> for DeltaSharingError {
+    fn from(value: ParseNameError) -> Self {
+        todo!()
+    }
+}
+
+impl From<DataSourceError> for DeltaSharingError {
+    fn from(value: DataSourceError) -> Self {
+        todo!()
     }
 }
 

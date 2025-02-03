@@ -26,7 +26,7 @@
 //!     .await?
 //!     .show()
 //!     .await?;
-//! # Ok::<(), DataFusionError>(())};
+//! # Ok::<(), Box<dyn std::error::Error>>(())};
 //! # Ok(()) }
 //! ```
 use std::{any::Any, collections::HashMap, sync::Arc};
@@ -40,11 +40,8 @@ use datafusion::{
 use futures::TryStreamExt;
 
 use crate::{
-    auth::Profile,
-    client::{client::ShareName, Client},
-    datasource::DeltaSharingTableBuilder,
-    model::{ShareInfo, TableInfo},
-    DeltaSharingError,
+    client::{profile::Profile, Client, ShareName, TableName},
+    DeltaSharingError, DeltaSharingTable,
 };
 
 /// Datafusion [`CatalogList`] implementation for Delta Sharing.
@@ -71,7 +68,7 @@ impl DeltaSharingCatalogList {
     /// let catalog_list = DeltaSharingCatalogList::try_new(profile).await?;
     ///
     /// assert_eq!(catalog_list.catalog_names().len(), 1);
-    /// # Ok::<(), DataFusionError>(()) };
+    /// # Ok::<(), Box<dyn std::error::Error>>(()) };
     /// # Ok(()) }
     /// ```
     pub async fn try_new(profile: Profile) -> Result<Self, DeltaSharingError> {
@@ -101,7 +98,7 @@ impl CatalogProviderList for DeltaSharingCatalogList {
         _name: String,
         _catalog: Arc<dyn CatalogProvider>,
     ) -> Option<Arc<dyn CatalogProvider>> {
-        unimplemented!("The DeltaSharingCatalogList is read-only and cannot be modified.")
+        unimplemented!("The DeltaSharingCatalogList is read-only")
     }
 
     fn catalog_names(&self) -> Vec<String> {
@@ -137,11 +134,11 @@ impl DeltaSharingCatalog {
     /// let catalog = DeltaSharingCatalog::try_new(profile, "my_share").await?;
     ///
     /// assert_eq!(catalog.schema_names().len(), 1);
-    /// # Ok::<(), DataFusionError>(()) };
+    /// # Ok::<(), Box<dyn std::error::Error>>(()) };
     /// # Ok(()) }
     /// ```
     pub async fn try_new(profile: Profile, share_name: &str) -> Result<Self, DeltaSharingError> {
-        let share_name: ShareName = share_name.try_into().unwrap();
+        let share_name: ShareName = share_name.try_into()?;
         let client = Client::new(profile);
 
         // let share = ShareInfo::builder().name(share_name).build();
@@ -218,15 +215,19 @@ impl SchemaProvider for DeltaSharingSchema {
     }
 
     async fn table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>, DataFusionError> {
-        let table_name = format!("{}.{}.{}", self.share_name, self.schema_name, name)
+        let table_name: TableName = format!("{}.{}.{}", self.share_name, self.schema_name, name)
             .try_into()
             .expect("valid table name");
 
-        let provider = DeltaSharingTableBuilder::new()
-            .with_profile(self.client.profile().clone())
-            .with_table(table_name)
-            .build()
-            .await?;
+        let provider = DeltaSharingTable::new(self.client.profile().clone(), table_name.clone())
+            .await
+            .map_err(|e| {
+                DataFusionError::Execution(format!(
+                    "Failed to create DeltaSharingTable for table '{}': {:?}",
+                    table_name, e
+                ))
+            })?;
+
         Ok(Some(Arc::new(provider)))
     }
 

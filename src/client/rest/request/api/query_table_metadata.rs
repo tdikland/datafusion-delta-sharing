@@ -1,44 +1,35 @@
 use bon::Builder;
-use url::Url;
+use bytes::Bytes;
+use http::{Request, Uri};
 
 use super::response::QueryTableMetadataResponse;
-use super::{IntoRequest, RequestBuilderError};
+use super::{IntoRequest, RequestError};
 
 const DELTA_SHARING_CAPABILITIES_HEADERNAME: &str = "delta-sharing-capabilities";
 
 #[derive(Debug, Builder)]
-pub struct QueryTableMetadataRequest {
-    url_prefix: String,
-    share: String,
-    schema: String,
-    table: String,
-    capabilities: Option<String>,
+pub struct QueryTableMetadataRequest<'req> {
+    share: &'req str,
+    schema: &'req str,
+    table: &'req str,
+    capabilities: Option<&'req str>,
 }
 
-impl IntoRequest for QueryTableMetadataRequest {
-    type Body = ();
-    type Error = RequestBuilderError;
+impl IntoRequest for QueryTableMetadataRequest<'_> {
     type Response = QueryTableMetadataResponse;
 
-    fn into_request(self) -> Result<http::Request<Self::Body>, Self::Error> {
-        let mut base_url = self.url_prefix.parse::<Url>().unwrap();
-        base_url
-            .path_segments_mut()
-            .unwrap()
-            .push("shares")
-            .push(&self.share)
-            .push("schemas")
-            .push(&self.schema)
-            .push("tables")
-            .push(&self.table)
-            .push("metadata");
+    fn into_request(self) -> Result<http::Request<Bytes>, RequestError> {
+        let path = format!(
+            "/shares/{}/schemas/{}/tables/{}/metadata",
+            self.share, self.schema, self.table
+        );
 
-        let mut req = http::Request::builder().uri(base_url.to_string());
+        let uri = Uri::builder().path_and_query(path).build()?;
+        let mut req = Request::builder().uri(uri);
         if let Some(cap) = self.capabilities {
             req = req.header(DELTA_SHARING_CAPABILITIES_HEADERNAME, cap);
         }
-
-        Ok(req.body(()).expect("valid"))
+        Ok(req.body(Bytes::new())?)
     }
 }
 
@@ -51,10 +42,9 @@ mod test {
     #[test]
     fn example() {
         let req = QueryTableMetadataRequest::builder()
-            .url_prefix(String::from("https://server.com"))
-            .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
-            .table(String::from("test_table"))
+            .share("test_share")
+            .schema("test_schema")
+            .table("test_table")
             .build()
             .into_request()
             .unwrap();
@@ -67,19 +57,16 @@ mod test {
         assert_eq!(req.uri().query(), None);
         assert_eq!(req.version(), Version::HTTP_11);
         assert!(req.headers().is_empty());
-        assert_eq!(req.body(), &());
+        assert!(req.body().is_empty());
     }
 
     #[test]
     fn with_capabilities() {
         let req = QueryTableMetadataRequest::builder()
-            .url_prefix(String::from("https://server.com"))
-            .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
-            .table(String::from("test_table"))
-            .capabilities(String::from(
-                "responseformat=delta;readerfeatures=deletionvectors",
-            ))
+            .share("test_share")
+            .schema("test_schema")
+            .table("test_table")
+            .capabilities("responseformat=delta;readerfeatures=deletionvectors")
             .build()
             .into_request()
             .unwrap();

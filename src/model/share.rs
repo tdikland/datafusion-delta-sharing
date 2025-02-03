@@ -25,9 +25,9 @@ impl ShareInfo {
     /// # Example
     ///
     /// ```rust
-    /// use datafusion_delta_sharing::model::Share;
+    /// use datafusion_delta_sharing::model::ShareInfo;
     ///
-    /// let share = Share::builder().name("my-share").build();
+    /// let share = ShareInfo::builder().name("my-share").build();
     /// assert_eq!(share.name(), "my-share");
     /// ```
     pub fn name(&self) -> &str {
@@ -39,9 +39,12 @@ impl ShareInfo {
     /// # Example
     ///  
     /// ```rust
-    /// use datafusion_delta_sharing::securable::Share;
+    /// use datafusion_delta_sharing::model::ShareInfo;
     ///
-    /// let share = Share::new("my-share", Some("my-share-id"));
+    /// let share = ShareInfo::builder()
+    ///     .name("my-share")
+    ///     .id("my-share-id")
+    ///     .build();
     /// assert_eq!(share.id(), Some("my-share-id"));
     /// ```
     pub fn id(&self) -> Option<&str> {

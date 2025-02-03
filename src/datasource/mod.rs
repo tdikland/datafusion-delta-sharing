@@ -1,7 +1,11 @@
 //! Datafusion TableProvider for Delta Sharing
 //!
-//! Example:
+//! The easiest way to register a shared Delta Lake table with DataFusion is to directly create a
+//! [`DeltaSharingTable`] using a connection string and register it with the [`SessionContext`]. The
+//! connection string is formatted as follows: `<path_to_profile_file>#<share_name>.<schema_name>.
+//! <table_name>`.
 //!
+//! Example:
 //! ```no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # use datafusion_delta_sharing::error::DeltaSharingError;
@@ -21,12 +25,10 @@
 //! # Ok(()) }
 //! ```
 
-mod exec;
-mod reader;
-// mod scan;
-mod format;
+mod error;
+mod scan;
+mod schema;
 mod table;
 
-mod s;
-
-pub use table::{DeltaSharingTable, DeltaSharingTableBuilder};
+pub use error::DataSourceError;
+pub use table::DeltaSharingTable;

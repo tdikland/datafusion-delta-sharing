@@ -1,9 +1,0 @@
----
-source: src/expr/mod.rs
-expression: op
----
-{
-  "op": "literal",
-  "value": "literal_value",
-  "valueType": "string"
-}

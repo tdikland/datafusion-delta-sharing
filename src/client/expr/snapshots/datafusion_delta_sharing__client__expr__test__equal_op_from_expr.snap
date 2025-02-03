@@ -1,0 +1,20 @@
+---
+source: src/client/expr/mod.rs
+expression: op
+snapshot_kind: text
+---
+{
+  "op": "equal",
+  "children": [
+    {
+      "op": "column",
+      "name": "hireDate",
+      "valueType": "date"
+    },
+    {
+      "op": "literal",
+      "value": "2021-04-29",
+      "valueType": "date"
+    }
+  ]
+}

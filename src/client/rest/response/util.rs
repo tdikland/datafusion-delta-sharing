@@ -1,21 +1,21 @@
 use http::{header::CONTENT_TYPE, HeaderMap};
 
-use super::{line::ResponseLine, ParseResponseError, DELTA_TABLE_VERSION_HEADER};
+use super::{line::ResponseLine, ResponseError, DELTA_TABLE_VERSION_HEADERNAME};
 
-pub fn extract_delta_table_version(headers: &HeaderMap) -> Result<u64, ParseResponseError> {
+pub fn extract_delta_table_version(headers: &HeaderMap) -> Result<u64, ResponseError> {
     let table_version_number = headers
-        .get(DELTA_TABLE_VERSION_HEADER)
-        .ok_or(ParseResponseError::MissingRequiredHeader {
-            header_name: DELTA_TABLE_VERSION_HEADER.to_string(),
+        .get(DELTA_TABLE_VERSION_HEADERNAME)
+        .ok_or(ResponseError::MissingRequiredHeader {
+            header_name: DELTA_TABLE_VERSION_HEADERNAME.to_string(),
         })?
         .to_str()
-        .map_err(|e| ParseResponseError::InvalidHeader {
-            header_name: DELTA_TABLE_VERSION_HEADER.to_string(),
+        .map_err(|e| ResponseError::InvalidHeader {
+            header_name: DELTA_TABLE_VERSION_HEADERNAME.to_string(),
             err: e.to_string(),
         })?
         .parse::<u64>()
-        .map_err(|e| ParseResponseError::InvalidHeader {
-            header_name: DELTA_TABLE_VERSION_HEADER.to_string(),
+        .map_err(|e| ResponseError::InvalidHeader {
+            header_name: DELTA_TABLE_VERSION_HEADERNAME.to_string(),
             err: e.to_string(),
         })?;
     Ok(table_version_number)
@@ -80,7 +80,7 @@ pub fn first_line_is_protocol(lines: &[ResponseLine]) -> bool {
 }
 
 pub fn second_line_is_metadata(lines: &[ResponseLine]) -> bool {
-    match lines.iter().nth(1) {
+    match lines.get(1) {
         Some(ResponseLine::Parquet(p)) => p.is_metadata(),
         Some(ResponseLine::Delta(d)) => d.is_metadata(),
         None => false,

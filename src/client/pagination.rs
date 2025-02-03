@@ -1,7 +1,7 @@
 use std::{
     future::Future,
     marker::PhantomData,
-    pin::{pin, Pin},
+    pin::Pin,
     task::{ready, Context, Poll},
 };
 
@@ -18,23 +18,23 @@ pub struct Pagination {
 impl Pagination {
     pub fn start() -> Self {
         Self {
-            max_results: Some(2),
+            max_results: Some(500),
             page_token: None,
             done: false,
         }
     }
 
-    pub fn with_max_results(&mut self, max_results: Option<u32>) -> &mut Self {
-        self.max_results = max_results;
-        self
-    }
+    // pub fn with_max_results(&mut self, max_results: Option<u32>) -> &mut Self {
+    //     self.max_results = max_results;
+    //     self
+    // }
 
     pub fn max_results(&self) -> Option<i32> {
         self.max_results.map(|mr| mr.try_into().expect("valid"))
     }
 
-    pub fn page_token(&self) -> Option<String> {
-        self.page_token.clone()
+    pub fn page_token(&self) -> Option<&str> {
+        self.page_token.as_deref()
     }
 
     pub fn advance(&mut self, next_page_token: Option<String>) {

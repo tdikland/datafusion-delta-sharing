@@ -1,14 +1,14 @@
 use async_trait::async_trait;
 use reqwest::Response;
 
-use crate::model::TableVersion;
+use crate::model::TableVersionNumber;
 
 use super::line::{DeltaResponseLine, ParquetResponseLine, ResponseLine};
 use super::util::{extract_delta_table_version, has_ndjson_content_type};
-use super::{FromResponse, ParseResponseError};
+use super::{FromResponse, ResponseError};
 
 pub struct QueryTableChangesResponse {
-    pub version: TableVersion,
+    pub version: TableVersionNumber,
     pub changes: TableChangesResponseLines,
 }
 
@@ -19,21 +19,18 @@ pub enum TableChangesResponseLines {
 
 #[async_trait]
 impl FromResponse for QueryTableChangesResponse {
-    type Error = ParseResponseError;
+    type Error = ResponseError;
 
     async fn parse(res: Response) -> Result<Self, Self::Error> {
         if !has_ndjson_content_type(res.headers()) {
-            return Err(ParseResponseError::MissingNdJsonContentType);
+            return Err(ResponseError::MissingNdJsonContentType);
         }
 
         let table_version = extract_delta_table_version(res.headers())?;
 
-        let bytes = res
-            .bytes()
-            .await
-            .map_err(|e| ParseResponseError::BodyError {
-                source: Box::new(e),
-            })?;
+        let bytes = res.bytes().await.map_err(|e| ResponseError::BodyError {
+            source: Box::new(e),
+        })?;
 
         let mut deserializer =
             serde_json::Deserializer::from_slice(&bytes).into_iter::<ResponseLine>();
@@ -41,18 +38,18 @@ impl FromResponse for QueryTableChangesResponse {
         let protocol_response_line = deserializer
             .next()
             .and_then(Result::ok)
-            .ok_or(ParseResponseError::UnexpectedEndOfStream)?;
+            .ok_or(ResponseError::UnexpectedEndOfStream)?;
         let metadata_response_line = deserializer
             .next()
             .and_then(Result::ok)
-            .ok_or(ParseResponseError::UnexpectedEndOfStream)?;
+            .ok_or(ResponseError::UnexpectedEndOfStream)?;
 
-        let file_response_lines = deserializer
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| ParseResponseError::BodyError {
-                source: Box::new(e), // fix?
-            })?;
+        let file_response_lines =
+            deserializer
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| ResponseError::BodyError {
+                    source: Box::new(e), // fix?
+                })?;
 
         let lines = match (protocol_response_line, metadata_response_line) {
             (ResponseLine::Parquet(p), ResponseLine::Parquet(m)) => {
@@ -89,7 +86,7 @@ impl FromResponse for QueryTableChangesResponse {
         };
 
         Ok(QueryTableChangesResponse {
-            version: TableVersion(table_version),
+            version: TableVersionNumber(table_version),
             changes: lines,
         })
     }

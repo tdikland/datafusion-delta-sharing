@@ -1,0 +1,10 @@
+---
+source: src/client/expr/mod.rs
+expression: op
+snapshot_kind: text
+---
+{
+  "op": "column",
+  "name": "column_name",
+  "valueType": "string"
+}

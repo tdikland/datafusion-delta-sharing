@@ -1,0 +1,25 @@
+---
+source: src/client/expr/mod.rs
+expression: op
+snapshot_kind: text
+---
+{
+  "op": "not",
+  "children": [
+    {
+      "op": "equal",
+      "children": [
+        {
+          "op": "column",
+          "name": "a",
+          "valueType": "string"
+        },
+        {
+          "op": "literal",
+          "value": "1",
+          "valueType": "string"
+        }
+      ]
+    }
+  ]
+}

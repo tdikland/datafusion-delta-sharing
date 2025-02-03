@@ -1,6 +1,6 @@
 use datafusion_delta_sharing::{
-    auth::Profile,
-    client::{client::QueryTableVersionOpts, Client},
+    client::profile::Profile,
+    client::Client,
     model::{SchemaInfo, ShareInfo, TableInfo},
 };
 
@@ -9,6 +9,7 @@ use tracing_test::traced_test;
 
 #[traced_test]
 #[tokio::test]
+#[ignore = "offline"]
 async fn list_shares() {
     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
     let client = Client::new(profile);
@@ -20,6 +21,7 @@ async fn list_shares() {
 
 #[traced_test]
 #[tokio::test]
+#[ignore = "offline"]
 async fn get_share() {
     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
     let client = Client::new(profile);
@@ -41,6 +43,7 @@ async fn get_share() {
 
 #[traced_test]
 #[tokio::test]
+#[ignore = "offline"]
 async fn list_schemas() {
     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
     let client = Client::new(profile);
@@ -57,11 +60,12 @@ async fn list_schemas() {
 
 #[traced_test]
 #[tokio::test]
+#[ignore = "offline"]
 async fn list_tables_in_share() {
     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
     let client = Client::new(profile);
 
-    let shares: Vec<String> = client
+    let mut shares: Vec<String> = client
         .list_tables_in_share("delta_sharing".try_into().unwrap())
         .await
         .try_collect::<Vec<TableInfo>>()
@@ -70,7 +74,7 @@ async fn list_tables_in_share() {
         .into_iter()
         .map(|t| t.name().to_owned())
         .collect();
-    let expected_tables = [
+    let mut expected_tables = [
         "COVID_19_NYT",
         "boston-housing",
         "flight-asa_2008",
@@ -81,16 +85,20 @@ async fn list_tables_in_share() {
     ]
     .to_vec();
 
+    shares.sort();
+    expected_tables.sort();
+
     assert_eq!(shares, expected_tables);
 }
 
 #[traced_test]
 #[tokio::test]
+#[ignore = "offline"]
 async fn list_tables_in_schema() {
     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
     let client = Client::new(profile);
 
-    let shares: Vec<String> = client
+    let mut shares: Vec<String> = client
         .list_tables_in_schema("delta_sharing.default".try_into().unwrap())
         .await
         .try_collect::<Vec<TableInfo>>()
@@ -99,7 +107,7 @@ async fn list_tables_in_schema() {
         .into_iter()
         .map(|t| t.name().to_owned())
         .collect();
-    let expected_tables = [
+    let mut expected_tables = [
         "COVID_19_NYT",
         "boston-housing",
         "flight-asa_2008",
@@ -110,29 +118,33 @@ async fn list_tables_in_schema() {
     ]
     .to_vec();
 
+    shares.sort();
+    expected_tables.sort();
+
     assert_eq!(shares, expected_tables);
 }
 
+// #[traced_test]
+// #[tokio::test]
+// #[ignore = "open sharing server does not impl GET version, only HEAD version"]
+// async fn query_table_version() {
+//     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
+//     let client = Client::new(profile);
+
+//     let opts = QueryTableVersionOpts::default();
+//     let version = client
+//         .query_table_version(
+//             "delta_sharing.default.owid-covid-data".try_into().unwrap(),
+//             &opts,
+//         )
+//         .await
+//         .unwrap();
+//     assert_eq!(version.0, 0);
+// }
+
 #[traced_test]
 #[tokio::test]
-#[ignore = "open sharing server does not impl GET version, only HEAD version"]
-async fn query_table_version() {
-    let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
-    let client = Client::new(profile);
-
-    let opts = QueryTableVersionOpts::default();
-    let version = client
-        .query_table_version(
-            "delta_sharing.default.owid-covid-data".try_into().unwrap(),
-            &opts,
-        )
-        .await
-        .unwrap();
-    assert_eq!(version.0, 0);
-}
-
-#[traced_test]
-#[tokio::test]
+#[ignore = "offline"]
 async fn query_table_metadata() {
     let profile = Profile::try_from_path("./tests/open-datasets.share").unwrap();
     let client = Client::new(profile);

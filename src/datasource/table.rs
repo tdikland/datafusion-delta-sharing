@@ -1,9 +1,9 @@
-//! Delta Sharing table
+//! Delta Sharing implementation of [`TableProvider`]
 
 use std::{any::Any, borrow::Cow, sync::Arc};
 
 use datafusion::{
-    arrow::datatypes::{Field, Schema, SchemaRef},
+    arrow::datatypes::SchemaRef,
     catalog::Session,
     common::{stats::Statistics, Constraints},
     datasource::TableProvider,
@@ -13,62 +13,17 @@ use datafusion::{
 };
 
 use crate::{
-    auth::Profile,
-    client::{client::QueryTableDataOpts, client::TableMetadata, client::TableName, Client},
+    client::profile::Profile,
+    client::{Client, QueryTableDataOpts, TableMetadata, TableName},
     error::DeltaSharingError,
     model::action::parquet::File,
 };
 
-// use super::schema::StructType;
-use crate::expr::Op;
+use crate::client::expr::Op;
 
-use super::{format::parquet::SharedParquetExec, s::LogicalTableSchema};
-
-/// Builder for [`DeltaSharingTable`]
-#[derive(Debug, Default)]
-pub struct DeltaSharingTableBuilder {
-    profile: Option<Profile>,
-    table: Option<TableName>,
-}
-
-impl DeltaSharingTableBuilder {
-    /// Create a new DeltaSharingTableBuilder
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    /// Set the profile for the DeltaSharingTable
-    pub fn with_profile(mut self, profile: Profile) -> Self {
-        self.profile = Some(profile);
-        self
-    }
-
-    /// Set the table for the DeltaSharingTable
-    pub fn with_table(mut self, table: TableName) -> Self {
-        self.table = Some(table);
-        self
-    }
-
-    /// Build the DeltaSharingTable
-    pub async fn build(self) -> Result<DeltaSharingTable, DeltaSharingError> {
-        let (Some(profile), Some(table)) = (self.profile, self.table) else {
-            return Err(DeltaSharingError::other("Missing profile or table"));
-        };
-
-        // let table = table.clone().unwrap();
-
-        let client = Client::new(profile);
-        let table_metadata = client.query_table_metadata(table.clone()).await.unwrap();
-        let table_schema = table_metadata.schema_string().parse().unwrap();
-
-        Ok(DeltaSharingTable {
-            client,
-            table: table.clone(),
-            table_metadata,
-            schema: table_schema,
-        })
-    }
-}
+use super::{
+    error::DataSourceError, scan::format::parquet::SharedParquetExec, schema::LogicalTableSchema,
+};
 
 /// Delta Sharing implementation of [`TableProvider`]`
 #[derive(Debug)]
@@ -80,6 +35,33 @@ pub struct DeltaSharingTable {
 }
 
 impl DeltaSharingTable {
+    /// Create a new DeltaSharingTable
+    pub async fn new(profile: Profile, table: TableName) -> Result<Self, DataSourceError> {
+        let client = Client::new(profile);
+        let table_metadata = client
+            .query_table_metadata(table.clone())
+            .await
+            .map_err(|e| {
+                DataSourceError::Client(format!(
+                    "Failed to query table metadata for table '{}': {}",
+                    table, e
+                ))
+            })?;
+        let table_schema = table_metadata.schema_string().parse().map_err(|e| {
+            DataSourceError::ParseTableSchema(format!(
+                "Failed to parse table schema for table '{}': {}",
+                table, e
+            ))
+        })?;
+
+        Ok(Self {
+            client,
+            table,
+            table_metadata,
+            schema: table_schema,
+        })
+    }
+
     /// Create a new DeltaSharingTable from a connection string
     ///
     /// The connection string should be formatted as
@@ -99,17 +81,12 @@ impl DeltaSharingTable {
     pub async fn try_from_str(s: &str) -> Result<Self, DeltaSharingError> {
         let (profile_path, table_fqn) = s.split_once('#').ok_or(DeltaSharingError::other("The connection string should be formatted as `<path/to/profile>#<share_name>.<schema_name>.<table_name>"))?;
         let profile = Profile::try_from_path(profile_path)?;
-        let table = table_fqn.try_into().unwrap();
-
-        DeltaSharingTableBuilder::new()
-            .with_profile(profile)
-            .with_table(table)
-            .build()
-            .await
+        let table = table_fqn.try_into()?;
+        Self::new(profile, table).await.map_err(Into::into)
     }
 
-    pub fn builder() -> DeltaSharingTableBuilder {
-        DeltaSharingTableBuilder::new()
+    fn table_schema(&self) -> &LogicalTableSchema {
+        &self.schema
     }
 
     async fn list_files_for_scan(
@@ -117,15 +94,16 @@ impl DeltaSharingTable {
         filter: Option<Op>,
         limit: Option<usize>,
     ) -> Result<Vec<File>, DeltaSharingError> {
-        let mapped_limit = limit.map(|l| l as u32);
-        let mapped_filter = filter.map(|f| serde_json::to_string(&f).unwrap());
-        let opts = QueryTableDataOpts::default();
+        let mut opts = QueryTableDataOpts::default();
+        if let Some(limit) = limit {
+            opts = opts.with_limit(limit as u32);
+        }
+        if let Some(filter) = filter {
+            opts = opts.with_predicate(filter);
+        }
 
-        let table_data = self
-            .client
-            .query_table_data(self.table.clone(), opts)
-            .await
-            .unwrap();
+        let table_data = self.client.query_table_data(&self.table, opts).await?;
+
         Ok(table_data.into_parquet_files())
     }
 
@@ -183,7 +161,7 @@ impl TableProvider for DeltaSharingTable {
         // If a filter expression from Datafusion is not supported, than it is omitted from the
         // conjunction.
         let mut supported_ops = filters
-            .into_iter()
+            .iter()
             .filter_map(|filter| Op::try_from_expr(filter, self.schema.as_arrow()).ok())
             .collect::<Vec<_>>();
         let filter = match supported_ops.len() {
@@ -201,7 +179,22 @@ impl TableProvider for DeltaSharingTable {
 
         println!("{:?}", files);
 
-        let exec = SharedParquetExec::new(self.schema(), files);
+        tracing::warn!(schema = ?self.schema, "SCHEMA");
+
+        let scan_schema = if let Some(proj) = projection {
+            self.table_schema().project(proj)
+        } else {
+            self.table_schema().full_projection()
+        };
+
+        let partition_cols = self.table_metadata.partition_columns().to_vec();
+        let exec = SharedParquetExec::new(
+            self.schema(),
+            files,
+            partition_cols,
+            self.table_schema().clone(),
+            scan_schema,
+        );
         Ok(Arc::new(exec))
     }
 

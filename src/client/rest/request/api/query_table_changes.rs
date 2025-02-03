@@ -1,76 +1,61 @@
 use bon::Builder;
-use url::Url;
+use bytes::Bytes;
+use http::{Request, Uri};
+use serde::Serialize;
 
 use super::response::QueryTableChangesResponse;
-use super::{IntoRequest, RequestBuilderError};
-
-const DELTA_SHARING_CAPABILITIES_HEADERNAME: &str = "delta-sharing-capabilities";
+use super::{
+    make_path_and_query, IntoRequest, RequestError, DELTA_SHARING_CAPABILITIES_HEADERNAME,
+};
 
 #[derive(Debug, Builder)]
-pub struct QueryTableChangesRequest {
-    url_prefix: String,
-    share: String,
-    schema: String,
-    table: String,
-    capabilities: Option<String>,
+pub struct QueryTableChangesRequest<'req> {
+    share: &'req str,
+    schema: &'req str,
+    table: &'req str,
+    capabilities: Option<&'req str>,
     starting_version: Option<i64>,
     ending_version: Option<i64>,
-    starting_timestamp: Option<String>,
-    ending_timestamp: Option<String>,
+    starting_timestamp: Option<&'req str>,
+    ending_timestamp: Option<&'req str>,
     include_historical_metadata: Option<bool>,
 }
 
-impl IntoRequest for QueryTableChangesRequest {
-    type Body = ();
-    type Error = RequestBuilderError;
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct QueryTableChangesQueryParams<'req> {
+    starting_version: Option<i64>,
+    ending_version: Option<i64>,
+    starting_timestamp: Option<&'req str>,
+    ending_timestamp: Option<&'req str>,
+    include_historical_metadata: Option<bool>,
+}
+
+impl IntoRequest for QueryTableChangesRequest<'_> {
     type Response = QueryTableChangesResponse;
 
-    fn into_request(self) -> Result<http::Request<Self::Body>, Self::Error> {
-        let mut base_url = self.url_prefix.parse::<Url>().unwrap();
-        base_url
-            .path_segments_mut()
-            .unwrap()
-            .push("shares")
-            .push(&self.share)
-            .push("schemas")
-            .push(&self.schema)
-            .push("tables")
-            .push(&self.table)
-            .push("changes");
+    fn into_request(self) -> Result<Request<Bytes>, RequestError> {
+        let path = format!(
+            "/shares/{}/schemas/{}/tables/{}/changes",
+            self.share, self.schema, self.table
+        );
+        let query = QueryTableChangesQueryParams {
+            starting_version: self.starting_version,
+            ending_version: self.ending_version,
+            starting_timestamp: self.starting_timestamp,
+            ending_timestamp: self.ending_timestamp,
+            include_historical_metadata: self.include_historical_metadata,
+        };
 
-        if self.starting_version.is_some()
-            || self.ending_version.is_some()
-            || self.starting_timestamp.is_some()
-            || self.ending_timestamp.is_some()
-            || self.include_historical_metadata.is_some()
-        {
-            let mut query_pairs = base_url.query_pairs_mut();
-            if let Some(starting_version) = self.starting_version {
-                query_pairs.append_pair("startingVersion", &starting_version.to_string());
-            }
-            if let Some(ending_version) = self.ending_version {
-                query_pairs.append_pair("endingVersion", &ending_version.to_string());
-            }
-            if let Some(starting_timestamp) = self.starting_timestamp {
-                query_pairs.append_pair("startingTimestamp", &starting_timestamp);
-            }
-            if let Some(ending_timestamp) = self.ending_timestamp {
-                query_pairs.append_pair("endingTimestamp", &ending_timestamp);
-            }
-            if let Some(include_historical_metadata) = self.include_historical_metadata {
-                query_pairs.append_pair(
-                    "includeHistoricalMetadata",
-                    &include_historical_metadata.to_string(),
-                );
-            }
-        }
-
-        let mut req = http::Request::builder().uri(base_url.to_string());
+        let path_and_query = make_path_and_query(path, query)?;
+        let uri = Uri::builder().path_and_query(path_and_query).build()?;
+        let mut req = Request::builder().uri(uri);
         if let Some(cap) = self.capabilities {
             req = req.header(DELTA_SHARING_CAPABILITIES_HEADERNAME, cap);
         }
+        let req = req.body(Bytes::new())?;
 
-        Ok(req.body(()).expect("valid"))
+        Ok(req)
     }
 }
 
@@ -83,10 +68,9 @@ mod test {
     #[test]
     fn example() {
         let req = QueryTableChangesRequest::builder()
-            .url_prefix(String::from("https://server.com"))
-            .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
-            .table(String::from("test_table"))
+            .share("test_share")
+            .schema("test_schema")
+            .table("test_table")
             .build()
             .into_request()
             .unwrap();
@@ -99,19 +83,16 @@ mod test {
         assert_eq!(req.uri().query(), None);
         assert_eq!(req.version(), Version::HTTP_11);
         assert!(req.headers().is_empty());
-        assert_eq!(req.body(), &());
+        assert!(req.body().is_empty());
     }
 
     #[test]
     fn with_capabilities() {
         let req = QueryTableChangesRequest::builder()
-            .url_prefix(String::from("https://server.com"))
-            .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
-            .table(String::from("test_table"))
-            .capabilities(String::from(
-                "responseformat=delta;readerfeatures=deletionvectors",
-            ))
+            .share("test_share")
+            .schema("test_schema")
+            .table("test_table")
+            .capabilities("responseformat=delta;readerfeatures=deletionvectors")
             .build()
             .into_request()
             .unwrap();

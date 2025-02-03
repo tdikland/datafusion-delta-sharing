@@ -1,45 +1,41 @@
 use bon::Builder;
-use url::Url;
+use bytes::Bytes;
+use http::{Request, Uri};
+use serde::Serialize;
 
 use super::response::QueryTableVersionResponse;
-use super::{IntoRequest, RequestBuilderError};
+use super::{make_path_and_query, IntoRequest, RequestError};
 
 #[derive(Debug, Builder)]
-pub struct QueryTableVersionRequest {
-    url_prefix: String,
-    share: String,
-    schema: String,
-    table: String,
-    starting_timestamp: Option<String>,
+pub struct QueryTableVersionRequest<'req> {
+    share: &'req str,
+    schema: &'req str,
+    table: &'req str,
+    starting_timestamp: Option<&'req str>,
 }
 
-impl IntoRequest for QueryTableVersionRequest {
-    type Body = ();
-    type Error = RequestBuilderError;
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct QueryTableVersionQueryParams<'req> {
+    starting_timestamp: Option<&'req str>,
+}
+
+impl IntoRequest for QueryTableVersionRequest<'_> {
     type Response = QueryTableVersionResponse;
 
-    fn into_request(self) -> Result<http::Request<Self::Body>, Self::Error> {
-        let mut base_url = self.url_prefix.parse::<Url>().unwrap();
-        base_url
-            .path_segments_mut()
-            .unwrap()
-            .push("shares")
-            .push(&self.share)
-            .push("schemas")
-            .push(&self.schema)
-            .push("tables")
-            .push(&self.table)
-            .push("version");
+    fn into_request(self) -> Result<Request<Bytes>, RequestError> {
+        let path = format!(
+            "/shares/{}/schemas/{}/tables/{}/version",
+            self.share, self.schema, self.table
+        );
+        let query = QueryTableVersionQueryParams {
+            starting_timestamp: self.starting_timestamp,
+        };
 
-        if self.starting_timestamp.is_some() {
-            let mut query_pairs = base_url.query_pairs_mut();
-            if let Some(ts) = self.starting_timestamp {
-                query_pairs.append_pair("startingTimestamp", &ts);
-            }
-        }
-
-        let req = http::Request::builder().uri(base_url.to_string());
-        Ok(req.body(()).expect("valid"))
+        let path_and_query = make_path_and_query(path, query)?;
+        let uri = Uri::builder().path_and_query(path_and_query).build()?;
+        let req = Request::builder().uri(uri).body(Bytes::new())?;
+        Ok(req)
     }
 }
 
@@ -52,11 +48,10 @@ mod test {
     #[test]
     fn example() {
         let req = QueryTableVersionRequest::builder()
-            .url_prefix(String::from("https://server.com"))
-            .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
-            .table(String::from("test_table"))
-            .starting_timestamp(String::from("2022-01-01T00:00:00Z"))
+            .share("test_share")
+            .schema("test_schema")
+            .table("test_table")
+            .starting_timestamp("2022-01-01T00:00:00Z")
             .build()
             .into_request()
             .unwrap();
@@ -72,16 +67,15 @@ mod test {
         );
         assert_eq!(req.version(), Version::HTTP_11);
         assert!(req.headers().is_empty());
-        assert_eq!(req.body(), &());
+        assert!(req.body().is_empty());
     }
 
     #[test]
     fn without_starting_timestamp() {
         let req = QueryTableVersionRequest::builder()
-            .url_prefix(String::from("https://server.com"))
-            .share(String::from("test_share"))
-            .schema(String::from("test_schema"))
-            .table(String::from("test_table"))
+            .share("test_share")
+            .schema("test_schema")
+            .table("test_table")
             .build()
             .into_request()
             .unwrap();

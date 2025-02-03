@@ -7,11 +7,11 @@ use super::{
     line::{DeltaResponseLine, ParquetResponseLine},
     util::second_line_is_metadata,
 };
-use super::{FromResponse, ParseResponseError};
-use crate::model::TableVersion;
+use super::{FromResponse, ResponseError};
+use crate::model::TableVersionNumber;
 
 pub struct QueryTableMetadataResponse {
-    pub version: TableVersion,
+    pub version: TableVersionNumber,
     pub lines: MetadataResponseLines,
 }
 
@@ -22,11 +22,11 @@ pub enum MetadataResponseLines {
 
 #[async_trait]
 impl FromResponse for QueryTableMetadataResponse {
-    type Error = ParseResponseError;
+    type Error = ResponseError;
 
     async fn parse(res: Response) -> Result<Self, Self::Error> {
         if !has_ndjson_content_type(res.headers()) {
-            return Err(ParseResponseError::MissingNdJsonContentType);
+            return Err(ResponseError::MissingNdJsonContentType);
         }
 
         let table_version = extract_delta_table_version(res.headers())?;
@@ -34,7 +34,7 @@ impl FromResponse for QueryTableMetadataResponse {
         let bytes = res
             .bytes()
             .await
-            .map_err(|e| ParseResponseError::BodyError {
+            .map_err(|e| ResponseError::BodyError {
                 source: Box::new(e),
             })?;
 
@@ -42,19 +42,19 @@ impl FromResponse for QueryTableMetadataResponse {
         let lines = deserializer
             .into_iter()
             .collect::<Result<Vec<ResponseLine>, _>>()
-            .map_err(|e| ParseResponseError::DecodeBody {
+            .map_err(|e| ResponseError::DecodeBody {
                 path: String::from("UNKNOWN"),
                 source: Box::new(e),
             })?;
 
         if !first_line_is_protocol(&lines) {
-            return Err(ParseResponseError::UnexpectedWrapperObject {
+            return Err(ResponseError::UnexpectedWrapperObject {
                 expected: String::from("protocol"),
             });
         }
 
         if !second_line_is_metadata(&lines) {
-            return Err(ParseResponseError::UnexpectedWrapperObject {
+            return Err(ResponseError::UnexpectedWrapperObject {
                 expected: String::from("metadata"),
             });
         }
@@ -69,13 +69,13 @@ impl FromResponse for QueryTableMetadataResponse {
             let delta_lines = lines.into_iter().flat_map(|line| line.to_delta()).collect();
             MetadataResponseLines::Delta(delta_lines)
         } else {
-            return Err(ParseResponseError::UnexpectedWrapperObject {
+            return Err(ResponseError::UnexpectedWrapperObject {
                 expected: String::from("protocol or metadata"),
             });
         };
 
         Ok(QueryTableMetadataResponse {
-            version: TableVersion(table_version),
+            version: TableVersionNumber(table_version),
             lines: meta,
         })
     }
@@ -97,7 +97,7 @@ mod test {
             .body(body)
             .unwrap();
 
-        let parsed = QueryTableMetadataResponse::parse(response.try_into().unwrap())
+        let parsed = QueryTableMetadataResponse::parse(response.into())
             .await
             .unwrap();
         assert_eq!(parsed.version.0, 3);

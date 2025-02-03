@@ -1,26 +1,24 @@
 use bon::Builder;
-use url::Url;
+use bytes::Bytes;
+use http::{Request, Uri};
 
 use super::response::GetShareResponse;
-use super::{IntoRequest, RequestBuilderError};
+use super::{IntoRequest, RequestError};
 
 #[derive(Debug, Builder)]
-pub struct GetShareRequest {
-    url_prefix: String,
-    share_name: String,
+pub struct GetShareRequest<'req> {
+    share: &'req str,
 }
 
-impl IntoRequest for GetShareRequest {
-    type Body = ();
-    type Error = RequestBuilderError;
+impl IntoRequest for GetShareRequest<'_> {
     type Response = GetShareResponse;
 
-    fn into_request(self) -> Result<http::Request<Self::Body>, Self::Error> {
-        let mut base_url = self.url_prefix.parse::<Url>().unwrap();
-        base_url.path_segments_mut().unwrap().push("shares");
-        base_url.path_segments_mut().unwrap().push(&self.share_name);
-        let req = http::Request::builder().uri(base_url.to_string());
-        Ok(req.body(()).expect("valid"))
+    fn into_request(self) -> Result<Request<Bytes>, RequestError> {
+        let path_and_query = format!("/shares/{}", self.share);
+
+        let uri = Uri::builder().path_and_query(path_and_query).build()?;
+        let req = Request::builder().uri(uri).body(Bytes::new())?;
+        Ok(req)
     }
 }
 
@@ -33,8 +31,7 @@ mod test {
     #[test]
     fn example() {
         let req = GetShareRequest::builder()
-            .url_prefix(String::from("https://server.com"))
-            .share_name(String::from("test_share"))
+            .share("test_share")
             .build()
             .into_request()
             .unwrap();
@@ -44,6 +41,6 @@ mod test {
         assert!(req.uri().query().is_none());
         assert_eq!(req.version(), Version::HTTP_11);
         assert!(req.headers().is_empty());
-        assert_eq!(req.body(), &());
+        assert!(req.body().is_empty());
     }
 }

@@ -1,21 +1,23 @@
-use core::fmt;
+use thiserror::Error;
 
-#[derive(Debug)]
-pub enum RequestBuilderError {
-    UrlParseError(url::ParseError),
-    HttpError(http::Error),
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum RequestError {
+    #[error("Invalid URI: {0}")]
+    InvalidUri(String),
+    #[error("Failed to serialize request body: {0}")]
+    SerializeBody(String),
+    #[error("Invalid HTTP request: {0}")]
+    HttpError(String),
 }
 
-impl fmt::Display for RequestBuilderError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+impl RequestError {
+    pub fn invalid_uri(uri: String) -> Self {
+        RequestError::InvalidUri(uri)
     }
 }
 
-impl std::error::Error for RequestBuilderError {}
-
-impl From<http::Error> for RequestBuilderError {
+impl From<http::Error> for RequestError {
     fn from(e: http::Error) -> Self {
-        RequestBuilderError::HttpError(e)
+        RequestError::HttpError(e.to_string())
     }
 }

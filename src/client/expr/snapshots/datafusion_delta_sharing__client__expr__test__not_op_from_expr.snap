@@ -1,0 +1,20 @@
+---
+source: src/client/expr/mod.rs
+expression: parsed_op
+snapshot_kind: text
+---
+{
+  "op": "not",
+  "children": [
+    {
+      "op": "isNull",
+      "children": [
+        {
+          "op": "column",
+          "name": "id",
+          "valueType": "int"
+        }
+      ]
+    }
+  ]
+}

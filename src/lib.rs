@@ -23,18 +23,17 @@
 //! # Ok(()) }
 //! ```
 
-// #![warn(missing_docs)]
+#![warn(missing_docs)]
+#![warn(clippy::unwrap_used)]
 
 pub mod catalog;
 pub mod client;
 pub mod datasource;
 pub mod error;
-pub mod expr;
-
-pub mod auth;
 pub mod model;
 
-pub use auth::Profile;
+pub use client::profile;
+pub use client::profile::Profile;
 pub use client::Client;
 pub use datasource::DeltaSharingTable;
 pub use error::{DeltaSharingError, DeltaSharingErrorKind};

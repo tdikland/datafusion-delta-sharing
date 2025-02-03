@@ -1,0 +1,20 @@
+---
+source: src/client/expr/mod.rs
+expression: op
+snapshot_kind: text
+---
+{
+  "op": "lessThan",
+  "children": [
+    {
+      "op": "column",
+      "name": "column_name",
+      "valueType": "int"
+    },
+    {
+      "op": "literal",
+      "value": "25",
+      "valueType": "int"
+    }
+  ]
+}

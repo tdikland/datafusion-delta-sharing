@@ -4,7 +4,7 @@ use serde::Deserialize;
 use crate::model;
 
 use super::util::has_json_content_type;
-use super::{FromResponse, ParseResponseError};
+use super::{FromResponse, ResponseError};
 
 #[derive(Debug)]
 pub struct ListTablesResponse {
@@ -21,24 +21,21 @@ struct ListTablesBody {
 
 #[async_trait::async_trait]
 impl FromResponse for ListTablesResponse {
-    type Error = ParseResponseError;
+    type Error = ResponseError;
 
     async fn parse(res: Response) -> Result<Self, Self::Error> {
         if !has_json_content_type(res.headers()) {
-            return Err(ParseResponseError::MissingJsonContentType);
+            return Err(ResponseError::MissingJsonContentType);
         }
 
-        let bytes = res
-            .bytes()
-            .await
-            .map_err(|e| ParseResponseError::BodyError {
-                source: Box::new(e),
-            })?;
+        let bytes = res.bytes().await.map_err(|e| ResponseError::BodyError {
+            source: Box::new(e),
+        })?;
 
         let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
         let body: ListTablesBody =
             serde_path_to_error::deserialize(&mut deserializer).map_err(|e| {
-                ParseResponseError::DecodeBody {
+                ResponseError::DecodeBody {
                     path: e.path().to_string(),
                     source: Box::new(e.into_inner()),
                 }
@@ -65,9 +62,7 @@ mod test {
             .body(body)
             .unwrap();
 
-        let res = ListTablesResponse::parse(response.try_into().unwrap())
-            .await
-            .unwrap();
+        let res = ListTablesResponse::parse(response.into()).await.unwrap();
 
         assert_eq!(res.items.len(), 1);
         assert_eq!(res.items[0].name(), "table1");

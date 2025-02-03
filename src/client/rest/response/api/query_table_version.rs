@@ -1,24 +1,24 @@
 use async_trait::async_trait;
 use reqwest::Response;
 
-use crate::model::TableVersion;
+use crate::model::TableVersionNumber;
 
 use super::util::extract_delta_table_version;
-use super::{FromResponse, ParseResponseError};
+use super::{FromResponse, ResponseError};
 
 #[derive(Debug)]
 pub struct QueryTableVersionResponse {
-    pub version: TableVersion,
+    pub version: TableVersionNumber,
 }
 
 #[async_trait]
 impl FromResponse for QueryTableVersionResponse {
-    type Error = ParseResponseError;
+    type Error = ResponseError;
 
     async fn parse(res: Response) -> Result<Self, Self::Error> {
         let table_version = extract_delta_table_version(res.headers())?;
         Ok(QueryTableVersionResponse {
-            version: TableVersion(table_version),
+            version: TableVersionNumber(table_version),
         })
     }
 }
@@ -36,7 +36,7 @@ mod test {
             .body("")
             .unwrap();
 
-        let parsed = QueryTableVersionResponse::parse(response.try_into().unwrap())
+        let parsed = QueryTableVersionResponse::parse(response.into())
             .await
             .unwrap();
         assert_eq!(parsed.version.0, 3);

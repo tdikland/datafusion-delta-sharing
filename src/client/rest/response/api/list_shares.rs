@@ -1,47 +1,41 @@
-use async_trait::async_trait;
-use http_body::Body;
-use http_body_util::BodyExt;
 use reqwest::Response;
 use serde::Deserialize;
 
-use crate::model;
+use crate::model::ShareInfo;
 
 use super::util::has_json_content_type;
-use super::{FromResponse, ParseResponseError};
+use super::{FromResponse, ResponseError};
 
 #[derive(Debug)]
 pub struct ListSharesResponse {
-    pub items: Vec<model::ShareInfo>,
+    pub items: Vec<ShareInfo>,
     pub next_page_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ListSharesBody {
-    items: Vec<model::ShareInfo>,
+    items: Vec<ShareInfo>,
     next_page_token: Option<String>,
 }
 
 #[async_trait::async_trait]
 impl FromResponse for ListSharesResponse {
-    type Error = ParseResponseError;
+    type Error = ResponseError;
 
     async fn parse(res: Response) -> Result<Self, Self::Error> {
         if !has_json_content_type(res.headers()) {
-            return Err(ParseResponseError::MissingJsonContentType);
+            return Err(ResponseError::MissingJsonContentType);
         }
 
-        let bytes = res
-            .bytes()
-            .await
-            .map_err(|e| ParseResponseError::BodyError {
-                source: Box::new(e),
-            })?;
+        let bytes = res.bytes().await.map_err(|e| ResponseError::BodyError {
+            source: Box::new(e),
+        })?;
 
         let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
         let body: ListSharesBody =
             serde_path_to_error::deserialize(&mut deserializer).map_err(|e| {
-                ParseResponseError::DecodeBody {
+                ResponseError::DecodeBody {
                     path: e.path().to_string(),
                     source: Box::new(e.into_inner()),
                 }
@@ -55,57 +49,19 @@ impl FromResponse for ListSharesResponse {
 }
 
 // #[async_trait]
-// impl<T: Body + Send + Sync> FromHttpResponse<T> for ListSharesResponse {
-//     type Error = ParseResponseError;
-
-//     async fn from_response(response: http::Response<T>) -> Result<Self, Self::Error> {
+// impl<T: Body + Send> FromHttpResponse<T> for ListSharesResponse {
+//     async fn from_response(response: http::Response<T>) -> Result<Self, ResponseError> {
 //         let bytes = response
 //             .into_body()
 //             .collect()
 //             .await
 //             .map(|buf| buf.to_bytes())
-//             .map_err(|e| ParseResponseError::MissingMetadata)?;
+//             .map_err(|e| ResponseError::MissingMetadata)?;
 
 //         let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
 //         let body: ListSharesBody =
 //             serde_path_to_error::deserialize(&mut deserializer).map_err(|e| {
-//                 ParseResponseError::DecodeBody {
-//                     path: e.path().to_string(),
-//                     source: Box::new(e.into_inner()),
-//                 }
-//             })?;
-
-//         Ok(ListSharesResponse {
-//             items: body.items,
-//             next_page_token: body.next_page_token,
-//         })
-//     }
-// }
-
-// impl<T> FromHttpResponse<T> for ListSharesResponse
-// where
-//     T: http_body::Body + Send + Sync + 'static,
-//     T::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-// {
-//     type Error = ParseResponseError;
-
-//     async fn from_response(response: http::Response<T>) -> Result<Self, Self::Error> {
-//         let headers = response.headers();
-//         if !has_json_content_type(headers) {
-//             return Err(ParseResponseError::MissingJsonContentType);
-//         }
-
-//         let body = response.into_body();
-//         let bytes = hyper::body::to_bytes(body)
-//             .await
-//             .map_err(|e| ParseResponseError::BodyError {
-//                 source: Box::new(e),
-//             })?;
-
-//         let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
-//         let body: ListSharesBody =
-//             serde_path_to_error::deserialize(&mut deserializer).map_err(|e| {
-//                 ParseResponseError::DecodeBody {
+//                 ResponseError::DecodeBody {
 //                     path: e.path().to_string(),
 //                     source: Box::new(e.into_inner()),
 //                 }
@@ -132,9 +88,7 @@ mod test {
             .body(body.to_string())
             .unwrap();
 
-        let parsed = ListSharesResponse::parse(response.try_into().unwrap())
-            .await
-            .unwrap();
+        let parsed = ListSharesResponse::parse(response.into()).await.unwrap();
 
         assert_eq!(parsed.items.len(), 1);
         assert_eq!(parsed.items[0].name(), "share1");
