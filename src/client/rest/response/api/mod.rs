@@ -1,6 +1,4 @@
-use super::line;
-use super::util;
-use super::{FromResponse, ResponseError};
+use super::{line, util, FromResponse, ResponseError};
 
 mod get_share;
 mod list_schemas;
@@ -15,7 +13,7 @@ pub use get_share::GetShareResponse;
 pub use list_schemas::ListSchemasResponse;
 pub use list_shares::ListSharesResponse;
 pub use list_tables::ListTablesResponse;
-pub use query_table_changes::QueryTableChangesResponse;
+pub use query_table_changes::{QueryTableChangesResponse, TableChangesResponseLines};
 pub use query_table_data::{QueryTableDataResponse, TableDataResponseLines};
 pub use query_table_metadata::{MetadataResponseLines, QueryTableMetadataResponse};
 pub use query_table_version::QueryTableVersionResponse;

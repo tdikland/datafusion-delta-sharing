@@ -1,31 +1,27 @@
-//! Delta Sharing implementation of [`TableProvider`]
+//! Datafusion [`TableProvider`] implementation
 
-use std::{any::Any, borrow::Cow, sync::Arc};
+use std::any::Any;
+use std::borrow::Cow;
+use std::sync::Arc;
 
-use datafusion::{
-    arrow::datatypes::SchemaRef,
-    catalog::Session,
-    common::{stats::Statistics, Constraints},
-    datasource::TableProvider,
-    error::Result as DataFusionResult,
-    logical_expr::{Expr, LogicalPlan, TableProviderFilterPushDown, TableType},
-    physical_plan::ExecutionPlan,
-};
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::catalog::Session;
+use datafusion::common::stats::Statistics;
+use datafusion::common::Constraints;
+use datafusion::datasource::TableProvider;
+use datafusion::error::DataFusionError;
+use datafusion::logical_expr::{Expr, LogicalPlan, TableProviderFilterPushDown, TableType};
+use datafusion::physical_plan::ExecutionPlan;
 
-use crate::{
-    client::profile::Profile,
-    client::{Client, QueryTableDataOpts, TableMetadata, TableName},
-    error::DeltaSharingError,
-    model::action::parquet::File,
-};
-
+use super::error::DataSourceError;
+use super::scan::format::parquet::SharedParquetScan;
+use super::schema::LogicalTableSchema;
 use crate::client::expr::Op;
+use crate::client::{Client, QueryTableDataOpts, TableMetadata, TableName};
+use crate::error::DeltaSharingError;
+use crate::model::action::parquet::File;
 
-use super::{
-    error::DataSourceError, scan::format::parquet::SharedParquetExec, schema::LogicalTableSchema,
-};
-
-/// Delta Sharing implementation of [`TableProvider`]`
+/// Datafusion [`TableProvider`] implementation
 #[derive(Debug)]
 pub struct DeltaSharingTable {
     client: Client,
@@ -36,17 +32,8 @@ pub struct DeltaSharingTable {
 
 impl DeltaSharingTable {
     /// Create a new DeltaSharingTable
-    pub async fn new(profile: Profile, table: TableName) -> Result<Self, DataSourceError> {
-        let client = Client::new(profile);
-        let table_metadata = client
-            .query_table_metadata(table.clone())
-            .await
-            .map_err(|e| {
-                DataSourceError::Client(format!(
-                    "Failed to query table metadata for table '{}': {}",
-                    table, e
-                ))
-            })?;
+    pub async fn new(client: Client, table: TableName) -> Result<Self, DeltaSharingError> {
+        let table_metadata = client.query_table_metadata(table.clone()).await?;
         let table_schema = table_metadata.schema_string().parse().map_err(|e| {
             DataSourceError::ParseTableSchema(format!(
                 "Failed to parse table schema for table '{}': {}",
@@ -79,10 +66,12 @@ impl DeltaSharingTable {
     /// # Ok(()) }
     /// ```
     pub async fn try_from_str(s: &str) -> Result<Self, DeltaSharingError> {
-        let (profile_path, table_fqn) = s.split_once('#').ok_or(DeltaSharingError::other("The connection string should be formatted as `<path/to/profile>#<share_name>.<schema_name>.<table_name>"))?;
-        let profile = Profile::try_from_path(profile_path)?;
-        let table = table_fqn.try_into()?;
-        Self::new(profile, table).await.map_err(Into::into)
+        let (profile_path, table_fqn) = s.split_once('#').ok_or(
+            DataSourceError::ConnectionString("invalid connection string".into()),
+        )?;
+        let client = Client::try_from_path(profile_path)?;
+        let table = table_fqn.try_into().unwrap();
+        Self::new(client, table).await.map_err(Into::into)
     }
 
     fn table_schema(&self) -> &LogicalTableSchema {
@@ -93,7 +82,7 @@ impl DeltaSharingTable {
         &self,
         filter: Option<Op>,
         limit: Option<usize>,
-    ) -> Result<Vec<File>, DeltaSharingError> {
+    ) -> Result<Vec<File>, DataSourceError> {
         let mut opts = QueryTableDataOpts::default();
         if let Some(limit) = limit {
             opts = opts.with_limit(limit as u32);
@@ -152,7 +141,7 @@ impl TableProvider for DeltaSharingTable {
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         limit: Option<usize>,
-    ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
+    ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
         // Split Delta/Parquet into delta scan and parquet scan
 
         // how are filters being passed? Is it possible to isolate filters on partition values?
@@ -188,12 +177,14 @@ impl TableProvider for DeltaSharingTable {
         };
 
         let partition_cols = self.table_metadata.partition_columns().to_vec();
-        let exec = SharedParquetExec::new(
+        let exec = SharedParquetScan::new(
             self.schema(),
             files,
             partition_cols,
             self.table_schema().clone(),
-            scan_schema,
+            scan_schema.map_err(|e| {
+                DataFusionError::Execution(format!("Failed to project schema: {}", e))
+            })?,
         );
         Ok(Arc::new(exec))
     }
@@ -201,7 +192,7 @@ impl TableProvider for DeltaSharingTable {
     fn supports_filters_pushdown(
         &self,
         filters: &[&Expr],
-    ) -> DataFusionResult<Vec<TableProviderFilterPushDown>> {
+    ) -> Result<Vec<TableProviderFilterPushDown>, DataFusionError> {
         // TODO: partition filters are exact. differentiate between the two?
         filters
             .iter()

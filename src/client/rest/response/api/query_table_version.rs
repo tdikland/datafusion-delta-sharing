@@ -18,7 +18,7 @@ impl FromResponse for QueryTableVersionResponse {
     async fn parse(res: Response) -> Result<Self, Self::Error> {
         let table_version = extract_delta_table_version(res.headers())?;
         Ok(QueryTableVersionResponse {
-            version: TableVersionNumber(table_version),
+            version: TableVersionNumber::new(table_version),
         })
     }
 }
@@ -39,6 +39,6 @@ mod test {
         let parsed = QueryTableVersionResponse::parse(response.into())
             .await
             .unwrap();
-        assert_eq!(parsed.version.0, 3);
+        assert_eq!(parsed.version.inner(), 3);
     }
 }

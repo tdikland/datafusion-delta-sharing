@@ -65,6 +65,6 @@ mod test {
         let result = ListSchemasResponse::parse(response.into()).await.unwrap();
         assert_eq!(result.items.len(), 1);
         assert_eq!(result.items[0].name(), "schema1");
-        assert_eq!(result.items[0].share_name(), "share1");
+        assert_eq!(result.items[0].share(), "share1");
     }
 }

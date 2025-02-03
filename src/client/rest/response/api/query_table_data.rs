@@ -94,7 +94,7 @@ impl FromResponse for QueryTableDataResponse {
         };
 
         Ok(QueryTableDataResponse {
-            version: TableVersionNumber(table_version),
+            version: TableVersionNumber::new(table_version),
             lines,
         })
     }
@@ -121,6 +121,6 @@ mod test {
         let parsed = QueryTableDataResponse::parse(response.into())
             .await
             .unwrap();
-        assert_eq!(parsed.version.0, 3);
+        assert_eq!(parsed.version.inner(), 3);
     }
 }

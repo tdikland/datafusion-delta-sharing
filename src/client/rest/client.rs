@@ -155,7 +155,7 @@ mod test {
     use url::Url;
 
     use super::super::request::ListSharesRequest;
-    use crate::{model::ShareInfo, profile::ProfileType};
+    use crate::{client::profile::ProfileType, model::ShareInfo};
 
     use super::*;
 

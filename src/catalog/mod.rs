@@ -13,13 +13,12 @@
 //! use std::sync::Arc;
 //!
 //! use datafusion::prelude::*;
-//! use datafusion_delta_sharing::{catalog::DeltaSharingCatalogList, Profile};
+//! use datafusion_delta_sharing::DeltaSharingCatalogList;
 //!
 //! let cfg = SessionConfig::new().with_information_schema(true);
-//! let mut ctx = SessionContext::new_with_config(cfg);
+//! let ctx = SessionContext::new_with_config(cfg);
 //!
-//! let profile = Profile::try_from_path("./path/to/profile.share")?;
-//! let catalog_list = DeltaSharingCatalogList::try_new(profile).await?;
+//! let catalog_list = DeltaSharingCatalogList::try_new("./path/to/profile.share").await?;
 //! ctx.register_catalog_list(Arc::new(catalog_list));
 //!
 //! ctx.sql("SELECT * FROM my_share.my_schema.my_table")
@@ -29,22 +28,22 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())};
 //! # Ok(()) }
 //! ```
-use std::{any::Any, collections::HashMap, sync::Arc};
+
+use std::any::Any;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use datafusion::{
-    catalog::{CatalogProvider, CatalogProviderList, SchemaProvider},
-    common::DataFusionError,
-    datasource::TableProvider,
-};
+use datafusion_catalog::{CatalogProvider, CatalogProviderList, SchemaProvider, TableProvider};
+use datafusion_common::DataFusionError;
 use futures::TryStreamExt;
 
-use crate::{
-    client::{profile::Profile, Client, ShareName, TableName},
-    DeltaSharingError, DeltaSharingTable,
-};
+use crate::client::profile::Profile;
+use crate::client::{Client, ShareName, TableName};
+use crate::{DeltaSharingError, DeltaSharingTable};
 
-/// Datafusion [`CatalogList`] implementation for Delta Sharing.
+/// Datafusion [`CatalogProviderList`] implementation
 #[derive(Debug)]
 pub struct DeltaSharingCatalogList {
     shares: HashMap<String, Arc<dyn CatalogProvider>>,
@@ -62,25 +61,27 @@ impl DeltaSharingCatalogList {
     /// # async {
     /// # use datafusion::error::DataFusionError;
     /// use datafusion::catalog::CatalogProviderList;
-    /// use datafusion_delta_sharing::{catalog::DeltaSharingCatalogList, Profile};
+    /// use datafusion_delta_sharing::DeltaSharingCatalogList;
     ///
-    /// let profile = Profile::try_from_path("./path/to/profile.share")?;
-    /// let catalog_list = DeltaSharingCatalogList::try_new(profile).await?;
+    /// let catalog_list = DeltaSharingCatalogList::try_new("./path/to/profile.share").await?;
     ///
     /// assert_eq!(catalog_list.catalog_names().len(), 1);
     /// # Ok::<(), Box<dyn std::error::Error>>(()) };
     /// # Ok(()) }
     /// ```
-    pub async fn try_new(profile: Profile) -> Result<Self, DeltaSharingError> {
-        let client = Client::new(profile.clone());
+    pub async fn try_new<P: AsRef<Path>>(profile_path: P) -> Result<Self, DeltaSharingError> {
+        let client = Client::try_from_path(profile_path)?;
         let shares = client.list_shares().await.try_collect::<Vec<_>>().await?;
 
         let mut share_map: HashMap<String, Arc<dyn CatalogProvider>> =
             HashMap::with_capacity(shares.len());
 
         for share in shares {
-            let catalog_provider =
-                DeltaSharingCatalog::try_new(profile.clone(), share.name()).await?;
+            let catalog_provider = DeltaSharingCatalog::from_profile_and_share(
+                client.profile().clone(),
+                share.name().try_into().expect("valid"),
+            )
+            .await?;
             share_map.insert(share.name().to_string(), Arc::new(catalog_provider));
         }
 
@@ -110,7 +111,7 @@ impl CatalogProviderList for DeltaSharingCatalogList {
     }
 }
 
-/// Datafusion [`CatalogProvider`] implementation for Delta Sharing.
+/// Datafusion [`CatalogProvider`] implementation
 #[derive(Debug)]
 pub struct DeltaSharingCatalog {
     schemas: HashMap<String, Arc<dyn SchemaProvider>>,
@@ -128,7 +129,8 @@ impl DeltaSharingCatalog {
     /// # async {
     /// # use datafusion::error::DataFusionError;
     /// use datafusion::catalog::CatalogProvider;
-    /// use datafusion_delta_sharing::{catalog::DeltaSharingCatalog, Profile};
+    /// use datafusion_delta_sharing::catalog::DeltaSharingCatalog;
+    /// use datafusion_delta_sharing::Profile;
     ///
     /// let profile = Profile::try_from_path("./path/to/profile.share")?;
     /// let catalog = DeltaSharingCatalog::try_new(profile, "my_share").await?;
@@ -137,17 +139,52 @@ impl DeltaSharingCatalog {
     /// # Ok::<(), Box<dyn std::error::Error>>(()) };
     /// # Ok(()) }
     /// ```
-    pub async fn try_new(profile: Profile, share_name: &str) -> Result<Self, DeltaSharingError> {
-        let share_name: ShareName = share_name.try_into()?;
-        let client = Client::new(profile);
+    pub async fn try_new<P: AsRef<Path>>(
+        profile: P,
+        share_name: &str,
+    ) -> Result<Self, DeltaSharingError> {
+        let share_name: ShareName = share_name.try_into().unwrap();
+        let client = Client::try_from_path(profile)?;
 
-        // let share = ShareInfo::builder().name(share_name).build();
         let mut schemas = HashMap::new();
         for table in client
             .list_tables_in_share(share_name.clone())
             .await
             .try_collect::<Vec<_>>()
             .await?
+        {
+            let schema_provider = schemas
+                .entry(table.schema_name().to_string())
+                .or_insert_with_key(|schema_name| {
+                    DeltaSharingSchema::new(
+                        client.clone(),
+                        share_name.to_string(),
+                        schema_name.to_string(),
+                    )
+                });
+            schema_provider.table_names.push(table.name().to_string());
+        }
+
+        let mut result: HashMap<String, Arc<dyn SchemaProvider>> = HashMap::new();
+        for (k, v) in schemas {
+            result.insert(k, Arc::new(v));
+        }
+
+        Ok(Self { schemas: result })
+    }
+
+    async fn from_profile_and_share(
+        profile: Profile,
+        share_name: ShareName,
+    ) -> Result<Self, DeltaSharingError> {
+        let client = Client::new(profile);
+        let mut schemas = HashMap::new();
+        for table in client
+            .list_tables_in_share(share_name.clone())
+            .await
+            .try_collect::<Vec<_>>()
+            .await
+            .expect("list tables in share")
         {
             let schema_provider = schemas
                 .entry(table.schema_name().to_string())
@@ -184,7 +221,7 @@ impl CatalogProvider for DeltaSharingCatalog {
     }
 }
 
-/// Datafusion [`SchemaProvider`] implementation for Delta Sharing.
+/// Datafusion [`SchemaProvider`] implementation
 #[derive(Debug)]
 pub struct DeltaSharingSchema {
     client: Client,
@@ -219,7 +256,7 @@ impl SchemaProvider for DeltaSharingSchema {
             .try_into()
             .expect("valid table name");
 
-        let provider = DeltaSharingTable::new(self.client.profile().clone(), table_name.clone())
+        let provider = DeltaSharingTable::new(self.client.clone(), table_name.clone())
             .await
             .map_err(|e| {
                 DataFusionError::Execution(format!(

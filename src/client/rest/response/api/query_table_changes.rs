@@ -1,20 +1,19 @@
 use async_trait::async_trait;
 use reqwest::Response;
 
-use crate::model::TableVersionNumber;
-
-use super::line::{DeltaResponseLine, ParquetResponseLine, ResponseLine};
+use super::line::{ParquetResponseLine, ResponseLine};
 use super::util::{extract_delta_table_version, has_ndjson_content_type};
 use super::{FromResponse, ResponseError};
+use crate::model::TableVersionNumber;
 
 pub struct QueryTableChangesResponse {
-    pub version: TableVersionNumber,
-    pub changes: TableChangesResponseLines,
+    _version: TableVersionNumber,
+    _changes: TableChangesResponseLines,
 }
 
 pub enum TableChangesResponseLines {
     Parquet(Vec<ParquetResponseLine>),
-    Delta(Vec<DeltaResponseLine>),
+    // Delta(Vec<DeltaResponseLine>),
 }
 
 #[async_trait]
@@ -86,8 +85,8 @@ impl FromResponse for QueryTableChangesResponse {
         };
 
         Ok(QueryTableChangesResponse {
-            version: TableVersionNumber(table_version),
-            changes: lines,
+            _version: TableVersionNumber::new(table_version),
+            _changes: lines,
         })
     }
 }

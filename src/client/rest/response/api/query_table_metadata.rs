@@ -1,11 +1,10 @@
 use async_trait::async_trait;
 use reqwest::Response;
 
-use super::line::ResponseLine;
-use super::util::{extract_delta_table_version, first_line_is_protocol, has_ndjson_content_type};
-use super::{
-    line::{DeltaResponseLine, ParquetResponseLine},
-    util::second_line_is_metadata,
+use super::line::{DeltaResponseLine, ParquetResponseLine, ResponseLine};
+use super::util::{
+    extract_delta_table_version, first_line_is_protocol, has_ndjson_content_type,
+    second_line_is_metadata,
 };
 use super::{FromResponse, ResponseError};
 use crate::model::TableVersionNumber;
@@ -31,12 +30,9 @@ impl FromResponse for QueryTableMetadataResponse {
 
         let table_version = extract_delta_table_version(res.headers())?;
 
-        let bytes = res
-            .bytes()
-            .await
-            .map_err(|e| ResponseError::BodyError {
-                source: Box::new(e),
-            })?;
+        let bytes = res.bytes().await.map_err(|e| ResponseError::BodyError {
+            source: Box::new(e),
+        })?;
 
         let deserializer = serde_json::Deserializer::from_slice(&bytes).into_iter::<ResponseLine>();
         let lines = deserializer
@@ -75,7 +71,7 @@ impl FromResponse for QueryTableMetadataResponse {
         };
 
         Ok(QueryTableMetadataResponse {
-            version: TableVersionNumber(table_version),
+            version: TableVersionNumber::new(table_version),
             lines: meta,
         })
     }
@@ -83,9 +79,10 @@ impl FromResponse for QueryTableMetadataResponse {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use http::header::CONTENT_TYPE;
+    use http::Response as HttpResponse;
 
-    use http::{header::CONTENT_TYPE, Response as HttpResponse};
+    use super::*;
 
     #[tokio::test]
     async fn example() {
@@ -100,6 +97,6 @@ mod test {
         let parsed = QueryTableMetadataResponse::parse(response.into())
             .await
             .unwrap();
-        assert_eq!(parsed.version.0, 3);
+        assert_eq!(parsed.version.inner(), 3);
     }
 }

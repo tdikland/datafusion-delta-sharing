@@ -13,26 +13,18 @@ use datafusion::{
         stream::RecordBatchStreamAdapter,
         DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
     },
-    scalar::ScalarValue,
 };
-use delta_kernel::scan;
-use futures::{stream, StreamExt, TryStreamExt};
-use parquet::arrow::arrow_reader::{
-    ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder,
-};
-use reqwest::Client;
 
-use datafusion::datasource::{
-    listing::PartitionedFile,
-    physical_plan::{FileScanConfig, ParquetExec},
-};
+use futures::{stream, StreamExt, TryStreamExt};
+use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
+use reqwest::Client;
 
 use crate::{
     datasource::schema::{LogicalScanSchema, LogicalTableSchema},
     model::action::parquet::File,
 };
 
-pub struct SharedParquetExec {
+pub struct SharedParquetScan {
     client: Client,
     schema: SchemaRef,
     properties: PlanProperties,
@@ -42,7 +34,7 @@ pub struct SharedParquetExec {
     scan_schema: LogicalScanSchema,
 }
 
-impl SharedParquetExec {
+impl SharedParquetScan {
     pub fn new(
         schema: SchemaRef,
         files: Vec<File>,
@@ -50,7 +42,7 @@ impl SharedParquetExec {
         logical_table_schema: LogicalTableSchema,
         scan_schema: LogicalScanSchema,
     ) -> Self {
-        let client = Client::builder().build().unwrap();
+        let client = Client::new();
         let props = PlanProperties::new(
             EquivalenceProperties::new(schema.clone()),
             Partitioning::UnknownPartitioning(1),
@@ -69,7 +61,7 @@ impl SharedParquetExec {
     }
 }
 
-impl fmt::Debug for SharedParquetExec {
+impl fmt::Debug for SharedParquetScan {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SharedParquetExec")
             .field("client", &self.client)
@@ -77,7 +69,7 @@ impl fmt::Debug for SharedParquetExec {
     }
 }
 
-impl DisplayAs for SharedParquetExec {
+impl DisplayAs for SharedParquetScan {
     fn fmt_as(&self, t: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
         match t {
             DisplayFormatType::Default => write!(f, "SharedParquetExec"),
@@ -86,7 +78,7 @@ impl DisplayAs for SharedParquetExec {
     }
 }
 
-impl ExecutionPlan for SharedParquetExec {
+impl ExecutionPlan for SharedParquetScan {
     fn name(&self) -> &str {
         "SharedParquetExec"
     }
@@ -126,16 +118,15 @@ impl ExecutionPlan for SharedParquetExec {
             let table_schema = table_schema.clone();
             tracing::warn!(url = file.url, "reading url FILE");
             async move {
-                // fetch the file from the interweb
                 let reader = client
                     .get(file.url.clone())
                     .send()
                     .await
-                    .unwrap()
+                    .expect("bytes")
                     .bytes()
                     .await
-                    .unwrap();
-                let metadata = ArrowReaderMetadata::load(&reader, Default::default())?;
+                    .expect("bytes");
+                // let metadata = ArrowReaderMetadata::load(&reader, Default::default())?;
                 // let parquet_schema = metadata.schema();
 
                 let options = ArrowReaderOptions::new();
@@ -157,8 +148,9 @@ impl ExecutionPlan for SharedParquetExec {
                                     "adding partition column"
                                 );
 
-                                let (col_idx, field) =
-                                    schema.column_with_name(&partition_col).unwrap();
+                                let (col_idx, field) = schema
+                                    .column_with_name(&partition_col)
+                                    .expect("column exists");
                                 let val = match field.data_type() {
                                     arrow_schema::DataType::Utf8
                                     | arrow_schema::DataType::LargeUtf8 => {
@@ -175,7 +167,7 @@ impl ExecutionPlan for SharedParquetExec {
                                 table_schema.as_arrow(),
                                 cols,
                             )
-                            .unwrap();
+                            .expect("record batch");
                             Ok(res)
                         }
                         Err(e) => Err(e),

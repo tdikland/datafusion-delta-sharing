@@ -54,7 +54,10 @@ async fn list_schemas() {
         .try_collect()
         .await
         .unwrap();
-    let expected = vec![SchemaInfo::new("delta_sharing", "default")];
+    let expected = vec![SchemaInfo::builder()
+        .share("delta_sharing")
+        .name("default")
+        .build()];
     assert_eq!(schemas, expected);
 }
 

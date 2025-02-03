@@ -1,6 +1,23 @@
-//! Client for interacting with the Delta Sharing server
+//! Delta Sharing client
+//!
+//! This module contains the high level client for interacting with the Delta Sharing server. The
+//! client is responsible for making requests to the server and handling the responses. It covers
+//! all APIs that are specified by the Delta Sharing protocol.
+//!
+//! # Example
+//! ```no_run
+//! use delta_sharing::{Client, Profile, ShareName};
+//! use futures::StreamExt;
+//!
+//! async fn main() -> Result<(), delta_sharing::ClientError> {
+//!     let profile = Profile::try_from_path("path/to/profile.share")?;
+//!     let client = Client::new(profile);
+//!
+//!     let shares = client.list_shares().await.collect::<Vec<_>>().await?;
+//! }
+//! ```
 
-use std::fmt;
+use std::{fmt, path::Path};
 
 use futures::Stream;
 use request::{QueryTableVersion, QueryTableVersionOpts, TableVersion, TableVersionRange};
@@ -41,6 +58,12 @@ impl fmt::Debug for Client {
 }
 
 impl Client {
+    /// Create a new client using the profile at the specified path.
+    pub fn try_from_path<P: AsRef<Path>>(path: P) -> Result<Self, ClientError> {
+        let profile = Profile::try_from_path(path)?;
+        Ok(Self::new(profile))
+    }
+
     /// Create a new client with the given profile.
     pub fn new(profile: Profile) -> Self {
         Self {

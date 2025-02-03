@@ -2,11 +2,14 @@ use std::convert::Infallible;
 
 use thiserror::Error;
 
-use super::{request::ParseNameError, rest::RestClientError};
+use super::{profile::error::ProfileError, request::ParseNameError, rest::RestClientError};
 
 /// Client error.
 #[derive(Debug, Error)]
 pub enum ClientError {
+    /// Profile error.
+    #[error("profile error")]
+    ProfileError(#[from] ProfileError),
     /// REST client error.
     #[error("REST client error")]
     RestClientError(RestClientError),

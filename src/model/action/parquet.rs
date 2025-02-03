@@ -1,10 +1,10 @@
-//! Basic types for describing table data and metadata
+//! Delta Lake actions in parquet reponse format
 
 use std::collections::HashMap;
 
 use serde::Deserialize;
 
-/// Representation of the table protocol.
+/// Protocol action
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Protocol {

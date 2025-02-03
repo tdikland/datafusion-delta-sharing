@@ -24,16 +24,14 @@
 //! ```
 
 #![warn(missing_docs)]
-#![warn(clippy::unwrap_used)]
 
-pub mod catalog;
+mod catalog;
+mod error;
+
 pub mod client;
 pub mod datasource;
-pub mod error;
 pub mod model;
 
-pub use client::profile;
-pub use client::profile::Profile;
-pub use client::Client;
+pub use catalog::{DeltaSharingCatalog, DeltaSharingCatalogList, DeltaSharingSchema};
 pub use datasource::DeltaSharingTable;
-pub use error::{DeltaSharingError, DeltaSharingErrorKind};
+pub use error::DeltaSharingError;

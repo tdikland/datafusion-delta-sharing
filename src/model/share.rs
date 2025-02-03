@@ -1,12 +1,11 @@
-//! The share model.
+//! The share model
 
 use core::fmt;
-use std::{convert::Infallible, str::FromStr};
 
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
-/// The type of a share as defined in the Delta Sharing protocol.
+/// Share model
 ///
 /// A share is a logical grouping to share with recipients. A share can be
 /// shared with one or multiple recipients. A recipient can access all
@@ -58,39 +57,20 @@ impl fmt::Display for ShareInfo {
     }
 }
 
-impl FromStr for ShareInfo {
-    type Err = Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(ShareInfo::builder().name(s).build())
-    }
-}
-
-impl From<String> for ShareInfo {
-    fn from(s: String) -> Self {
-        ShareInfo::builder().name(s).build()
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
-    fn display_share() {
+    fn builder() {
         let share = ShareInfo::builder().name("share").id("1").build();
-        assert_eq!(format!("{}", share), "share");
+        assert_eq!(share.name(), "share");
+        assert_eq!(share.id(), Some("1"));
     }
 
     #[test]
-    fn parse_share() {
-        let share = "share".parse::<ShareInfo>().unwrap();
-        assert_eq!(
-            share,
-            ShareInfo {
-                name: String::from("share"),
-                id: None
-            }
-        );
+    fn display_share() {
+        let share = ShareInfo::builder().name("share").id("1").build();
+        assert_eq!(format!("{}", share), "share");
     }
 }

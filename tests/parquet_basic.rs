@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use datafusion::assert_batches_sorted_eq;
 use datafusion::prelude::*;
-use datafusion_delta_sharing::profile::ProfileType;
-use datafusion_delta_sharing::{datasource::DeltaSharingTable, Profile};
+use datafusion_delta_sharing::client::profile::ProfileType;
+use datafusion_delta_sharing::client::Client;
+use datafusion_delta_sharing::{client::profile::Profile, DeltaSharingTable};
 use httpmock::MockServer;
 use tracing_test::traced_test;
 
@@ -57,12 +58,13 @@ async fn full_scan() {
     });
 
     // Register table
+    let client = Client::new(Profile::from_profile_type(
+        1,
+        mock_server.base_url().parse().unwrap(),
+        ProfileType::new_bearer_token("foo", None),
+    ));
     let table = DeltaSharingTable::new(
-        Profile::from_profile_type(
-            1,
-            mock_server.base_url().parse().unwrap(),
-            ProfileType::new_bearer_token("foo", None),
-        ),
+        client,
         "test_share.test_schema.test_table".try_into().unwrap(),
     )
     .await

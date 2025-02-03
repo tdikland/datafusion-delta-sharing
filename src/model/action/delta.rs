@@ -1,3 +1,5 @@
+//! Delta Lake actions in delta reponse format
+
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};

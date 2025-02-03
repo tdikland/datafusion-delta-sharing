@@ -113,7 +113,7 @@ impl Profile {
     ///
     /// # Example
     /// ```rust
-    /// use datafusion_delta_sharing::{profile::ProfileType, Profile};
+    /// use datafusion_delta_sharing::{client::profile::Profile, client::profile::ProfileType};
     /// use url::Url;
     ///
     /// let version = 1;
@@ -169,7 +169,7 @@ impl Profile {
     ///
     /// # Example
     /// ```rust
-    /// use datafusion_delta_sharing::{profile::ProfileType, Profile};
+    /// use datafusion_delta_sharing::{client::profile::Profile, client::profile::ProfileType};
     /// use url::Url;
     ///
     /// let version = 1;
@@ -191,7 +191,7 @@ impl Profile {
     ///
     /// # Example
     /// ```rust
-    /// use datafusion_delta_sharing::{profile::ProfileType, Profile};
+    /// use datafusion_delta_sharing::{client::profile::Profile, client::profile::ProfileType};
     /// use url::Url;
     ///
     /// let version = 1;
@@ -211,7 +211,7 @@ impl Profile {
     ///
     /// # Example
     /// ```rust
-    /// use datafusion_delta_sharing::{profile::ProfileType, Profile};
+    /// use datafusion_delta_sharing::{client::profile::Profile, client::profile::ProfileType};
     /// use url::Url;
     ///
     /// let version = 1;

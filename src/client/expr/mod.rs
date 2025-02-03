@@ -1,4 +1,4 @@
-//! Delta Sharing predicates
+//! Delta Sharing query predicates
 //!
 //! These predicates can be constructed using the functions on [`Op`], or by
 //! converting from a datafusion expression.
@@ -14,26 +14,62 @@ use std::ops::{BitAnd, BitOr, Not};
 
 use arrow_schema::{DataType, SchemaRef};
 use chrono::Days;
-use datafusion::{logical_expr::Expr, scalar::ScalarValue};
-
-use crate::error::DeltaSharingError;
+use datafusion::logical_expr::Expr;
 use error::ParseExpressionError;
-use serde::{ser::SerializeStruct, Serialize};
+use serde::ser::SerializeStruct;
+use serde::Serialize;
 
 pub(crate) mod error;
 
+/// Op
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    /// ColumnOp
     Column(Column),
+    /// LiteralOp
     Literal(Literal),
+    /// IsNullOp
     IsNull(Box<Op>),
-    Equal { left: Box<Op>, right: Box<Op> },
-    LessThan { left: Box<Op>, right: Box<Op> },
-    LessThanOrEqual { left: Box<Op>, right: Box<Op> },
-    GreaterThan { left: Box<Op>, right: Box<Op> },
-    GreaterThanOrEqual { left: Box<Op>, right: Box<Op> },
+    /// EqualOp
+    Equal {
+        /// LHS
+        left: Box<Op>,
+        /// RHS
+        right: Box<Op>,
+    },
+    /// LessThanOp
+    LessThan {
+        /// LHS
+        left: Box<Op>,
+        /// RHS
+        right: Box<Op>,
+    },
+    /// LessThanOrEqualOp
+    LessThanOrEqual {
+        /// LHS
+        left: Box<Op>,
+        /// RHS
+        right: Box<Op>,
+    },
+    /// GreaterThanOp
+    GreaterThan {
+        /// LHS
+        left: Box<Op>,
+        /// RHS
+        right: Box<Op>,
+    },
+    /// GreaterThanOrEqualOp
+    GreaterThanOrEqual {
+        /// LHS
+        left: Box<Op>,
+        /// RHS
+        right: Box<Op>,
+    },
+    /// AndOp
     And(Vec<Op>),
+    /// OrOp
     Or(Vec<Op>),
+    /// NotOp
     Not(Box<Op>),
 }
 
@@ -142,6 +178,7 @@ impl Op {
     }
 
     /// Represents a logical not check. This op should have one child.
+    #[allow(clippy::should_implement_trait)]
     pub fn not(child: Op) -> Self {
         Op::Not(Box::new(child))
     }
@@ -150,10 +187,7 @@ impl Op {
 impl Op {
     /// Check if the OpType is `Leaf`
     fn is_leaf(&self) -> bool {
-        match self {
-            Self::Column(_) | Self::Literal(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Column(_) | Self::Literal(_))
     }
 
     /// Check if the Op is the `Column` variant
@@ -264,74 +298,74 @@ impl Op {
         }
     }
 
-    fn from_expr(expr: &Expr, schema: SchemaRef) -> Result<Self, DeltaSharingError> {
-        let converted = match expr {
-            Expr::Column(col) => {
-                let name = &col.name;
-                let value_type = schema
-                    .field_with_name(name)
-                    .map_err(|e| DeltaSharingError::other(e.to_string()))?
-                    .data_type()
-                    .try_into()
-                    .unwrap();
-                Op::col(name, value_type)
-            }
-            Expr::Literal(lit) => {
-                let value_type = ValueType::try_from(&lit.data_type()).unwrap();
-                match value_type {
-                    ValueType::Date => match lit {
-                        ScalarValue::Date32(Some(days)) => {
-                            let value = chrono::NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .checked_add_days(Days::new(*days as u64))
-                                .unwrap()
-                                .format("%Y-%m-%d")
-                                .to_string();
-                            Op::lit(value, value_type)
-                        }
-                        _ => {
-                            panic!("invalid data_value")
-                        }
-                    },
-                    _ => {
-                        let value = lit.to_string();
-                        Op::lit(value, value_type)
-                    }
-                }
-            }
-            Expr::BinaryExpr(bin) => {
-                let left = Op::from_expr(&bin.left, schema.clone())?;
-                let right = Op::from_expr(&bin.right, schema.clone())?;
-                match bin.op {
-                    datafusion::logical_expr::Operator::Eq => Op::eq(left, right),
-                    datafusion::logical_expr::Operator::Lt => Op::less_than(left, right),
-                    datafusion::logical_expr::Operator::LtEq => Op::less_than_or_equal(left, right),
-                    datafusion::logical_expr::Operator::Gt => Op::greater_than(left, right),
-                    datafusion::logical_expr::Operator::GtEq => {
-                        Op::greater_than_or_equal(left, right)
-                    }
-                    datafusion::logical_expr::Operator::And => Op::and(vec![left, right]),
-                    datafusion::logical_expr::Operator::Or => Op::or(vec![left, right]),
-                    _ => unimplemented!(),
-                }
-            }
-            Expr::Not(child) => {
-                let child = Op::from_expr(child, schema)?;
-                Op::not(child)
-            }
-            Expr::IsNotNull(child) => {
-                let child = Op::from_expr(child, schema)?;
-                Op::not(Op::is_null(child))
-            }
-            Expr::IsNull(child) => {
-                let child = Op::from_expr(child, schema)?;
-                Op::is_null(child)
-            }
-            _ => return Err(DeltaSharingError::other("Filter not supported")),
-        };
+    // fn from_expr(expr: &Expr, schema: SchemaRef) -> Result<Self, DeltaSharingError> {
+    //     let converted = match expr {
+    //         Expr::Column(col) => {
+    //             let name = &col.name;
+    //             let value_type = schema
+    //                 .field_with_name(name)
+    //                 .unwrap()
+    //                 .data_type()
+    //                 .try_into()
+    //                 .unwrap();
+    //             Op::col(name, value_type)
+    //         }
+    //         Expr::Literal(lit) => {
+    //             let value_type = ValueType::try_from(&lit.data_type()).unwrap();
+    //             match value_type {
+    //                 ValueType::Date => match lit {
+    //                     ScalarValue::Date32(Some(days)) => {
+    //                         let value = chrono::NaiveDate::from_ymd_opt(1970, 1, 1)
+    //                             .unwrap()
+    //                             .checked_add_days(Days::new(*days as u64))
+    //                             .unwrap()
+    //                             .format("%Y-%m-%d")
+    //                             .to_string();
+    //                         Op::lit(value, value_type)
+    //                     }
+    //                     _ => {
+    //                         panic!("invalid data_value")
+    //                     }
+    //                 },
+    //                 _ => {
+    //                     let value = lit.to_string();
+    //                     Op::lit(value, value_type)
+    //                 }
+    //             }
+    //         }
+    //         Expr::BinaryExpr(bin) => {
+    //             let left = Op::from_expr(&bin.left, schema.clone())?;
+    //             let right = Op::from_expr(&bin.right, schema.clone())?;
+    //             match bin.op {
+    //                 datafusion::logical_expr::Operator::Eq => Op::eq(left, right),
+    //                 datafusion::logical_expr::Operator::Lt => Op::less_than(left, right),
+    //                 datafusion::logical_expr::Operator::LtEq => Op::less_than_or_equal(left,
+    // right),                 datafusion::logical_expr::Operator::Gt => Op::greater_than(left,
+    // right),                 datafusion::logical_expr::Operator::GtEq => {
+    //                     Op::greater_than_or_equal(left, right)
+    //                 }
+    //                 datafusion::logical_expr::Operator::And => Op::and(vec![left, right]),
+    //                 datafusion::logical_expr::Operator::Or => Op::or(vec![left, right]),
+    //                 _ => unimplemented!(),
+    //             }
+    //         }
+    //         Expr::Not(child) => {
+    //             let child = Op::from_expr(child, schema)?;
+    //             Op::not(child)
+    //         }
+    //         Expr::IsNotNull(child) => {
+    //             let child = Op::from_expr(child, schema)?;
+    //             Op::not(Op::is_null(child))
+    //         }
+    //         Expr::IsNull(child) => {
+    //             let child = Op::from_expr(child, schema)?;
+    //             Op::is_null(child)
+    //         }
+    //         _ => return panic!("not supported"),
+    //     };
 
-        Ok(converted)
-    }
+    //     Ok(converted)
+    // }
 }
 
 impl serde::Serialize for Op {
@@ -436,30 +470,41 @@ impl Not for Op {
     }
 }
 
+/// Column
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct Column {
+pub struct Column {
     name: String,
     value_type: ValueType,
 }
 
+/// Literal
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct Literal {
+pub struct Literal {
     value: String,
     value_type: ValueType,
 }
 
+/// ValueType
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ValueType {
+    /// Bool
     Bool,
+    /// Int
     Int,
+    /// Long
     Long,
+    /// String
     String,
+    /// Date
     Date,
+    /// Float
     Float,
+    /// Double
     Double,
+    /// Timestamp
     Timestamp,
 }
 
@@ -603,7 +648,7 @@ mod invariants {
     #[test]
     fn only_accept_leaf_ops_in_binary_ops() {
         let col_a = Op::col("a", ValueType::String);
-        let err = Op::eq(col_a.clone(), Op::eq(col_a.clone(), col_a.clone()));
+        let _err = Op::eq(col_a.clone(), Op::eq(col_a.clone(), col_a.clone()));
     }
 }
 
@@ -615,7 +660,9 @@ mod test {
     use std::sync::Arc;
 
     use arrow_schema::{Field, Schema};
-    use datafusion::{logical_expr::Operator, prelude::*, scalar::ScalarValue};
+    use datafusion::logical_expr::Operator;
+    use datafusion::prelude::*;
+    use datafusion::scalar::ScalarValue;
 
     use super::*;
 
@@ -626,7 +673,7 @@ mod test {
         let expr = binary_expr(column, datafusion::logical_expr::Operator::Eq, literal);
         let schema = Schema::new(vec![Field::new("hireDate", DataType::Date32, false)]);
 
-        let op = Op::from_expr(&expr, Arc::new(schema)).unwrap();
+        let op = Op::try_from_expr(&expr, Arc::new(schema)).unwrap();
         insta::assert_json_snapshot!(op);
     }
 
@@ -654,7 +701,7 @@ mod test {
             Field::new("id", DataType::Int32, false),
         ]);
 
-        let parsed_op = Op::from_expr(&expr, Arc::new(schema)).unwrap();
+        let parsed_op = Op::try_from_expr(&expr, Arc::new(schema)).unwrap();
         insta::assert_json_snapshot!(parsed_op);
     }
 
@@ -664,7 +711,7 @@ mod test {
         let expr = Expr::Not(Box::new(Expr::IsNull(Box::new(column))));
         let schema = Schema::new(vec![Field::new("id", DataType::Int32, false)]);
 
-        let parsed_op = Op::from_expr(&expr, Arc::new(schema)).unwrap();
+        let parsed_op = Op::try_from_expr(&expr, Arc::new(schema)).unwrap();
         insta::assert_json_snapshot!(parsed_op);
     }
 

@@ -1,9 +1,11 @@
 use std::{convert::Infallible, str::FromStr};
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
-use arrow_schema::{Field, Schema, SchemaRef};
+use arrow_schema::{Schema, SchemaRef};
 use delta_kernel::schema::StructType;
+
+use super::DataSourceError;
 
 #[derive(Debug, Clone)]
 pub struct LogicalTableSchema {
@@ -13,7 +15,7 @@ pub struct LogicalTableSchema {
 
 impl LogicalTableSchema {
     /// Create a new LogicalTableSchema
-    pub fn new(schema: Schema, partition_columns: Vec<String>) -> Self {
+    fn new(schema: Schema, partition_columns: Vec<String>) -> Self {
         assert!(
             partition_columns
                 .iter()
@@ -28,48 +30,41 @@ impl LogicalTableSchema {
     }
 
     pub fn as_arrow(&self) -> SchemaRef {
-        // self.arrow_schema.get_or_init(|| self.to_arrow()).clone()
         Arc::new(self.schema.clone())
     }
-
-    // fn to_arrow(&self) -> SchemaRef {
-    //     let s: Schema = (&self.inner).try_into().unwrap();
-    //     Arc::new(s)
-    // }
 
     fn partition_columns(&self) -> Vec<String> {
         self.partition_columns.clone()
     }
 
-    pub fn project(&self, indices: &[usize]) -> LogicalScanSchema {
-        let proj_schema = self.as_arrow().project(indices).unwrap();
+    pub fn project(&self, indices: &[usize]) -> Result<LogicalScanSchema, DataSourceError> {
+        let proj_schema = self.as_arrow().project(indices).map_err(|e| {
+            DataSourceError::InvalidSchemaProjection(format!("Failed to project schema: {}", e))
+        })?;
         let proj_partition_cols = self
             .partition_columns()
             .into_iter()
-            .filter_map(|col| {
-                let idx = self.schema.index_of(&col).unwrap();
-                if indices.contains(&idx) {
-                    Some(col)
-                } else {
-                    None
-                }
+            .filter_map(|col| match self.schema.index_of(&col) {
+                Ok(idx) if indices.contains(&idx) => Some(col),
+                _ => None,
             })
             .collect();
 
-        LogicalScanSchema {
+        Ok(LogicalScanSchema {
             schema: proj_schema.into(),
             partition_columns: proj_partition_cols,
-        }
+        })
     }
 
-    pub fn full_projection(&self) -> LogicalScanSchema {
-        LogicalScanSchema {
+    pub fn full_projection(&self) -> Result<LogicalScanSchema, DataSourceError> {
+        Ok(LogicalScanSchema {
             schema: self.as_arrow(),
             partition_columns: self.partition_columns(),
-        }
+        })
     }
 }
 
+/// Physical schema for a file
 #[derive(Debug, Clone)]
 pub struct PhysicalFileSchema {
     schema: SchemaRef,
@@ -79,6 +74,14 @@ pub struct PhysicalFileSchema {
 pub struct LogicalScanSchema {
     schema: SchemaRef,
     partition_columns: Vec<String>,
+}
+
+impl LogicalScanSchema {
+    pub fn to_physical_schema(&self) -> PhysicalFileSchema {
+        PhysicalFileSchema {
+            schema: self.schema.clone(),
+        }
+    }
 }
 
 impl FromStr for LogicalTableSchema {
@@ -96,7 +99,7 @@ impl FromStr for LogicalTableSchema {
 
 #[cfg(test)]
 mod test {
-    use arrow_schema::DataType;
+    use arrow_schema::{DataType, Field};
 
     use super::*;
 
@@ -108,12 +111,12 @@ mod test {
 
         let table_schema = LogicalTableSchema::new(schema, vec![]);
 
-        let proj1 = table_schema.project(&[0]);
+        let proj1 = table_schema.project(&[0]).unwrap();
         assert_eq!(proj1.schema.fields().len(), 1);
         assert_eq!(proj1.schema.field(0).name(), "a");
         assert_eq!(proj1.partition_columns.len(), 0);
 
-        let proj2 = table_schema.project(&[1]);
+        let proj2 = table_schema.project(&[1]).unwrap();
         assert_eq!(proj2.schema.fields().len(), 1);
         assert_eq!(proj2.schema.field(0).name(), "b");
         assert_eq!(proj2.partition_columns.len(), 0);
@@ -127,13 +130,13 @@ mod test {
 
         let table_schema = LogicalTableSchema::new(schema, vec!["a".to_string()]);
 
-        let proj1 = table_schema.project(&[0]);
+        let proj1 = table_schema.project(&[0]).unwrap();
         assert_eq!(proj1.schema.fields().len(), 1);
         assert_eq!(proj1.schema.field(0).name(), "a");
         assert_eq!(proj1.partition_columns.len(), 1);
         assert_eq!(proj1.partition_columns[0], "a");
 
-        let proj2 = table_schema.project(&[1]);
+        let proj2 = table_schema.project(&[1]).unwrap();
         assert_eq!(proj2.schema.fields().len(), 1);
         assert_eq!(proj2.schema.field(0).name(), "b");
         assert_eq!(proj2.partition_columns.len(), 0);

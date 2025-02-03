@@ -24,11 +24,6 @@ impl Pagination {
         }
     }
 
-    // pub fn with_max_results(&mut self, max_results: Option<u32>) -> &mut Self {
-    //     self.max_results = max_results;
-    //     self
-    // }
-
     pub fn max_results(&self) -> Option<i32> {
         self.max_results.map(|mr| mr.try_into().expect("valid"))
     }
